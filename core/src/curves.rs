@@ -21,6 +21,11 @@ const CHAIN_MIN: usize = 24;
 pub const MAX_SELF_CROSSINGS: usize = 64;
 /// Two parts of a curve closer than this are touching.
 const TOUCH: f64 = 1e-5;
+/// Most places a chain from a plugin or an agent may cross or touch what is already drawn: each one cuts edges and
+/// faces, and every piece is drawn against the whole model, so the work grows fast. (The person's own drawing is not limited.)
+pub const MAX_EXISTING_CROSSINGS: usize = 128;
+/// How long a chain from a plugin or an agent may take to draw before it is stopped and put back.
+const DRAW_SECONDS: std::time::Duration = std::time::Duration::from_secs(8);
 
 fn distinct(points: &[DVec3]) -> Vec<DVec3> {
     let mut out: Vec<DVec3> = Vec::with_capacity(points.len());
@@ -134,6 +139,12 @@ impl Model {
     /// Draw sampled points as edges (a closed loop on one plane makes a face, as lines do) and flag them as one curve.
     /// `closed`: the list ends on its first point.
     pub fn draw_curve(&mut self, pts: &[DVec3], closed: bool) -> Result<CurveResult> {
+        self.draw_curve_for(pts, closed, false)
+    }
+
+    /// `draw_curve`; `untrusted` (a plugin or an agent) limits how often the curve may meet what is already drawn and
+    /// how long it may take.
+    pub fn draw_curve_for(&mut self, pts: &[DVec3], closed: bool, untrusted: bool) -> Result<CurveResult> {
         let mut pts = distinct(pts);
         if closed && pts.len() > 1 {
             *pts.last_mut().unwrap() = pts[0];
@@ -148,12 +159,8 @@ impl Model {
                 Chain::Busy => {}
             }
         }
-        let (mut edges, mut faces) = (vec![], vec![]);
-        for w in pts.windows(2) {
-            let r = self.draw_line(w[0], w[1])?;
-            edges.extend(r.edges);
-            faces.extend(r.faces);
-        }
+        let r = self.draw_pieces(&pts, untrusted)?;
+        let (edges, mut faces) = (r.edges, r.faces);
         let ring = if closed { &pts[..pts.len() - 1] } else { &pts[..] };
         let curve = self.curve_through(ring, closed);
         // a long closed loop is past what line drawing looks for: make its face from the points
@@ -167,6 +174,123 @@ impl Model {
             }
         }
         Ok(CurveResult { edges, faces, curve, points: pts.len() })
+    }
+}
+
+impl Model {
+    /// Draw a chain of points as lines, piece by piece (each is cut where it meets the drawing). For a plugin or an
+    /// agent the chain may meet existing edges only `MAX_EXISTING_CROSSINGS` times and only `DRAW_SECONDS` of work are
+    /// allowed; past either, nothing is drawn (the command is put back).
+    pub fn draw_pieces(&mut self, pts: &[DVec3], untrusted: bool) -> Result<crate::topology::LineResult> {
+        let before = self.deadline;
+        if untrusted {
+            // a chain that crosses itself over and over is as costly as one that crosses the drawing, whatever is or isn't near it
+            if pts.len() >= 3 {
+                let closed = pts.len() > 3 && pts[0] == pts[pts.len() - 1];
+                if self_crossings(pts, closed).is_some_and(|h| h > MAX_SELF_CROSSINGS) {
+                    bail!("that line crosses or touches itself more than {MAX_SELF_CROSSINGS} times; draw it in smaller parts");
+                }
+            }
+            let n = self.existing_touches(pts, MAX_EXISTING_CROSSINGS + 1);
+            if n > MAX_EXISTING_CROSSINGS {
+                bail!("that crosses or touches what is already drawn more than {MAX_EXISTING_CROSSINGS} times; draw it in smaller parts");
+            }
+            self.deadline = Some(std::time::Instant::now() + DRAW_SECONDS);
+        }
+        let mut out = crate::topology::LineResult { edges: vec![], faces: vec![] };
+        let mut res = Ok(());
+        for w in pts.windows(2) {
+            match self.draw_line(w[0], w[1]) {
+                Ok(r) => {
+                    out.edges.extend(r.edges);
+                    out.faces.extend(r.faces);
+                }
+                Err(e) => {
+                    res = Err(e);
+                    break;
+                }
+            }
+        }
+        self.deadline = before;
+        res.map(|_| out)
+    }
+
+    /// How many (piece, edge) pairs of this chain and the active group's edges touch, counting up to `stop`. A grid
+    /// over the edges keeps it to the pieces and the edges near them.
+    fn existing_touches(&self, pts: &[DVec3], stop: usize) -> usize {
+        if pts.len() < 2 {
+            return 0;
+        }
+        let (mut lo, mut hi) = (pts[0], pts[0]);
+        for p in pts {
+            lo = lo.min(*p);
+            hi = hi.max(*p);
+        }
+        let pad = DVec3::splat(TOUCH * 10.0 + WELD);
+        let (blo, bhi) = (lo - pad, hi + pad);
+        let g = self.active_group;
+        let near: Vec<(DVec3, DVec3)> = self
+            .edges
+            .values()
+            .filter(|e| e.group == g)
+            .map(|e| (self.p(e.a), self.p(e.b)))
+            .filter(|(a, b)| a.min(*b).cmple(bhi).all() && a.max(*b).cmpge(blo).all())
+            .collect();
+        if near.is_empty() {
+            return 0;
+        }
+        let n = pts.len() - 1;
+        let cell = (pts.windows(2).map(|w| w[0].distance(w[1])).sum::<f64>() / n as f64 * 2.0).max(TOUCH * 100.0);
+        let key = |p: DVec3| -> (i64, i64, i64) { (((p.x - lo.x) / cell).floor() as i64, ((p.y - lo.y) / cell).floor() as i64, ((p.z - lo.z) / cell).floor() as i64) };
+        let span = |a: DVec3, b: DVec3| {
+            let (k0, k1) = (key(a.min(b) - DVec3::splat(TOUCH)), key(a.max(b) + DVec3::splat(TOUCH)));
+            let cells = (k1.0 - k0.0 + 1).max(1) as i128 * (k1.1 - k0.1 + 1).max(1) as i128 * (k1.2 - k0.2 + 1).max(1) as i128;
+            (k0, k1, cells)
+        };
+        // edges (or pieces) spanning too many cells are kept apart and compared with everything
+        let mut grid: std::collections::HashMap<(i64, i64, i64), Vec<usize>> = std::collections::HashMap::new();
+        let mut long: Vec<usize> = Vec::new();
+        for (i, (a, b)) in near.iter().enumerate() {
+            let (k0, k1, cells) = span(*a, *b);
+            if cells > 4096 {
+                long.push(i);
+                continue;
+            }
+            for x in k0.0..=k1.0 {
+                for y in k0.1..=k1.1 {
+                    for z in k0.2..=k1.2 {
+                        grid.entry((x, y, z)).or_default().push(i);
+                    }
+                }
+            }
+        }
+        let mut hits = 0usize;
+        let mut seen: std::collections::HashSet<usize> = std::collections::HashSet::new();
+        for w in pts.windows(2) {
+            seen.clear();
+            let (k0, k1, cells) = span(w[0], w[1]);
+            let mut cand: Vec<usize> = long.clone();
+            if cells > 4096 {
+                cand = (0..near.len()).collect();
+            } else {
+                for x in k0.0..=k1.0 {
+                    for y in k0.1..=k1.1 {
+                        for z in k0.2..=k1.2 {
+                            cand.extend(grid.get(&(x, y, z)).into_iter().flatten());
+                        }
+                    }
+                }
+            }
+            for i in cand {
+                if seen.insert(i) && seg_dist(w[0], w[1], near[i].0, near[i].1) < TOUCH {
+                    hits += 1;
+                    if hits >= stop {
+                        return hits;
+                    }
+                }
+            }
+        }
+        hits
     }
 }
 
@@ -199,37 +323,27 @@ fn seg_dist(p: DVec3, q: DVec3, r: DVec3, s: DVec3) -> f64 {
     (p + d1 * sn).distance(r + d2 * t)
 }
 
-/// Whether a chain of points touches the model's own geometry in the active group, or itself.
-fn chain_state(m: &Model, pts: &[DVec3], closed: bool) -> Chain {
+/// How many places the chain's pieces cross or touch each other (not counting neighbours), counting up to
+/// `MAX_SELF_CROSSINGS + 1`; `None` if there are too many very long pieces to compare. A grid over the pieces, so
+/// only close ones are compared.
+fn self_crossings(pts: &[DVec3], closed: bool) -> Option<usize> {
     let n = pts.len() - 1; // pieces
-    let (mut lo, mut hi) = (pts[0], pts[0]);
-    for p in pts {
-        lo = lo.min(*p);
-        hi = hi.max(*p);
-    }
-    let pad = DVec3::splat(TOUCH * 10.0 + WELD);
-    let (blo, bhi) = (lo - pad, hi + pad);
-    let g = m.active_group;
-    let near = |a: DVec3, b: DVec3| a.min(b).cmple(bhi).all() && a.max(b).cmpge(blo).all();
-    if m.vertices.values().any(|v| v.group == g && v.p.cmpge(blo).all() && v.p.cmple(bhi).all()) {
-        return Chain::Busy;
-    }
-    if m.edges.values().any(|e| e.group == g && near(m.p(e.a), m.p(e.b))) {
-        return Chain::Busy;
-    }
-    // pieces too short to keep apart count as touching (line drawing would weld them)
-    if pts.windows(2).any(|w| w[0].distance(w[1]) <= WELD * 4.0) {
-        return Chain::Busy;
-    }
-    // the curve against itself: a grid over the pieces, so only close ones are compared
+    let lo = pts.iter().fold(pts[0], |a, p| a.min(*p));
     let cell = (pts.windows(2).map(|w| w[0].distance(w[1])).sum::<f64>() / n as f64 * 2.0).max(TOUCH * 100.0);
     let key = |p: DVec3| -> (i64, i64, i64) { (((p.x - lo.x) / cell).floor() as i64, ((p.y - lo.y) / cell).floor() as i64, ((p.z - lo.z) / cell).floor() as i64) };
     let mut grid: std::collections::HashMap<(i64, i64, i64), Vec<usize>> = std::collections::HashMap::new();
+    let mut long: Vec<usize> = Vec::new();
     for i in 0..n {
         let (k0, k1) = (key(pts[i].min(pts[i + 1]) - DVec3::splat(TOUCH)), key(pts[i].max(pts[i + 1]) + DVec3::splat(TOUCH)));
         let cells = (k1.0 - k0.0 + 1).max(1) as i128 * (k1.1 - k0.1 + 1).max(1) as i128 * (k1.2 - k0.2 + 1).max(1) as i128;
         if cells > 4096 {
-            return Chain::Busy; // a piece far longer than its neighbours: let line drawing sort it out
+            // a piece far longer than its neighbours: compared with every piece below (or, if there are too many of
+            // those pairs to count, left to line drawing)
+            long.push(i);
+            if long.len().saturating_mul(n) > 20_000_000 {
+                return None;
+            }
+            continue;
         }
         for x in k0.0..=k1.0 {
             for y in k0.1..=k1.1 {
@@ -255,12 +369,55 @@ fn chain_state(m: &Model, pts: &[DVec3], closed: bool) -> Chain {
                 if seg_dist(pts[i], pts[i + 1], pts[j], pts[j + 1]) < TOUCH {
                     hits += 1;
                     if hits > MAX_SELF_CROSSINGS {
-                        return Chain::Crossed(hits);
+                        return Some(hits);
                     }
                 }
             }
         }
     }
+    let mut is_long = vec![false; n];
+    for &i in &long {
+        is_long[i] = true;
+    }
+    for &i in &long {
+        for j in 0..n {
+            let (a, b) = (i.min(j), i.max(j));
+            if i == j || adjacent(a, b) || (is_long[j] && j < i) {
+                continue;
+            }
+            if seg_dist(pts[i], pts[i + 1], pts[j], pts[j + 1]) < TOUCH {
+                hits += 1;
+                if hits > MAX_SELF_CROSSINGS {
+                    return Some(hits);
+                }
+            }
+        }
+    }
+    Some(hits)
+}
+
+/// Whether a chain of points touches the model's own geometry in the active group, or itself.
+fn chain_state(m: &Model, pts: &[DVec3], closed: bool) -> Chain {
+    let n = pts.len() - 1; // pieces
+    let (mut lo, mut hi) = (pts[0], pts[0]);
+    for p in pts {
+        lo = lo.min(*p);
+        hi = hi.max(*p);
+    }
+    let pad = DVec3::splat(TOUCH * 10.0 + WELD);
+    let (blo, bhi) = (lo - pad, hi + pad);
+    let g = m.active_group;
+    let near = |a: DVec3, b: DVec3| a.min(b).cmple(bhi).all() && a.max(b).cmpge(blo).all();
+    // meeting existing geometry (or pieces too short to keep apart, which line drawing would weld) means drawing piece
+    // by piece; that must not skip the count of the curve's own crossings below, so it is only noted here
+    let mut busy = m.vertices.values().any(|v| v.group == g && v.p.cmpge(blo).all() && v.p.cmple(bhi).all()) || m.edges.values().any(|e| e.group == g && near(m.p(e.a), m.p(e.b)));
+    busy |= pts.windows(2).any(|w| w[0].distance(w[1]) <= WELD * 4.0);
+    // the curve against itself (counted whatever else it meets)
+    let hits = match self_crossings(pts, closed) {
+        Some(h) if h > MAX_SELF_CROSSINGS => return Chain::Crossed(h),
+        Some(h) => h,
+        None => return Chain::Busy, // too many long pieces to compare: line drawing sorts it out
+    };
     // adjacent pieces that fold back on each other overlap too
     for i in 0..n.saturating_sub(1) {
         let (a, b, c) = (pts[i], pts[i + 1], pts[i + 2]);
@@ -268,7 +425,7 @@ fn chain_state(m: &Model, pts: &[DVec3], closed: bool) -> Chain {
             return Chain::Busy;
         }
     }
-    if hits > 0 {
+    if busy || hits > 0 {
         Chain::Busy
     } else {
         Chain::Clear

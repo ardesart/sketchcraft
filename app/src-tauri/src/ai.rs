@@ -101,7 +101,8 @@ fn ident(name: &str) -> String {
 pub fn clean_name(name: &str) -> String {
     let s: String = name
         .chars()
-        .filter(|c| !c.is_control() && !matches!(c, '"' | '\\' | '\u{200B}'..='\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}' | '\u{FEFF}'))
+        .map(|c| if sketchcraft::text::is_odd_space(c) { ' ' } else { c })
+        .filter(|c| !c.is_control() && !sketchcraft::text::is_format_char(*c) && !sketchcraft::text::is_invisible_filler(*c) && !matches!(c, '"' | '\\' | '\u{2028}' | '\u{2029}'))
         .take(40)
         .collect();
     s.trim().to_string()
@@ -110,6 +111,15 @@ pub fn clean_name(name: &str) -> String {
 /// Most days of AI debug files kept, and the most bytes one day's file may hold.
 pub const LOG_KEEP_FILES: usize = 14;
 pub const LOG_MAX_FILE_BYTES: u64 = 8 << 20;
+
+#[cfg(unix)]
+fn link_count(m: &std::fs::Metadata) -> u64 {
+    std::os::unix::fs::MetadataExt::nlink(m)
+}
+#[cfg(not(unix))]
+fn link_count(_: &std::fs::Metadata) -> u64 {
+    1
+}
 
 /// Append `line` to the day's debug file unless that would pass `max_bytes`, then drop the oldest `.jsonl` files
 /// beyond `keep`. Never writes through a link.
@@ -128,6 +138,10 @@ pub fn append_log(dir: &std::path::Path, day: &str, line: &str, max_bytes: u64, 
         return Err("today's AI debug file is full".into());
     }
     let mut f = std::fs::OpenOptions::new().create(true).append(true).open(&path).map_err(|e| e.to_string())?;
+    // checked on the open file (not the path): a hardlink to another file is refused, nothing is written through it
+    if !f.metadata().is_ok_and(|m| m.is_file() && link_count(&m) <= 1) {
+        return Err("the AI debug file has other links; nothing is written through it".into());
+    }
     f.write_all(line.as_bytes()).and_then(|_| f.write_all(b"\n")).map_err(|e| e.to_string())?;
     let mut files: Vec<(std::time::SystemTime, std::path::PathBuf)> = std::fs::read_dir(dir)
         .map_err(|e| e.to_string())?
@@ -243,9 +257,19 @@ pub fn apply(live: &mut Live, answer: &Value) -> Value {
             return json!({"ok": false, "error": format!("couldn't start: {}", begin["error"].as_str().unwrap_or("busy")), "rows": rows});
         }
         let mut stopped = false;
+        let mut ran_out = false;
+        // the whole answer has one time limit, like an agent's call
+        let _call = sketchcraft::deadline::call_guard(sketchcraft::deadline::call_seconds());
         for (i, c) in runnable {
             if stopped {
                 rows[i]["status"] = json!("skipped");
+                continue;
+            }
+            if sketchcraft::deadline::call_over() {
+                rows[i]["status"] = json!("error");
+                rows[i]["error"] = json!(format!("the answer used its {} seconds, so everything it did was undone", sketchcraft::deadline::call_seconds().as_secs()));
+                stopped = true;
+                ran_out = true;
                 continue;
             }
             let r = live.exec_as(&caller, &c);
@@ -256,9 +280,14 @@ pub fn apply(live: &mut Live, answer: &Value) -> Value {
                 rows[i]["status"] = json!("error");
                 rows[i]["error"] = json!(r["error"].as_str().unwrap_or("the engine refused it"));
                 stopped = true;
+                ran_out = sketchcraft::deadline::call_over();
             }
         }
         live.exec_as(&caller, &json!({"cmd": "end_batch"}));
+        // out of time: the answer was one undo step; take it back (only what it changed)
+        if ran_out && live.engine.undo_depth() != depth_before {
+            live.exec_as(&Caller::Ui, &json!({"cmd": "undo"}));
+        }
     }
     // did the answer change the model (a new undo step)? A question does not.
     let changed = live.engine.undo_depth() != depth_before;
@@ -444,6 +473,40 @@ mod tests {
         assert!(!st.contains('\n') && !st.contains('\u{202E}'), "{st}");
         assert!(!st.contains(&"x".repeat(41)), "{st}");
         assert!(st.contains("named \"Box"), "{st}");
+    }
+
+    #[test]
+    fn invisible_tag_and_separator_characters_are_stripped() {
+        let hidden = "Door\u{E0041}\u{E0042}\u{E007F}\u{2028}\u{2029}\u{2060}\u{00AD}\u{FEFF}!";
+        assert_eq!(clean_name(hidden), "Door!");
+    }
+
+    #[test]
+    fn invisible_filler_characters_are_stripped() {
+        for filler in ['\u{3164}', '\u{2800}', '\u{115F}', '\u{1160}', '\u{FFA0}', '\u{180E}', '\u{17B4}', '\u{17B5}', '\u{034F}', '\u{FE0F}', '\u{E0100}', '\u{180B}'] {
+            assert_eq!(clean_name(&format!("Door{filler}{filler}Left")), "DoorLeft", "U+{:04X}", filler as u32);
+        }
+        // a name made only of fillers is empty, not a blank-looking name
+        assert_eq!(clean_name("\u{3164}\u{2800}\u{115F}\u{FFA0}"), "");
+        // odd spaces become a plain one, and the ends are trimmed
+        assert_eq!(clean_name("\u{00A0}Door\u{3000}Left\u{2003}"), "Door Left");
+        // the fillers don't count toward the length limit
+        assert_eq!(clean_name(&format!("{}A", "\u{3164}".repeat(100))), "A");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_debug_log_refuses_a_hardlinked_file() {
+        let dir = std::env::temp_dir().join(format!("sc-ailog-hl-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let victim = dir.join("victim.txt");
+        std::fs::write(&victim, "keep me").unwrap();
+        std::fs::hard_link(&victim, dir.join("2026-11-07.jsonl")).unwrap();
+        assert!(append_log(&dir, "2026-11-07", "{}", 1000, 3).is_err());
+        assert_eq!(std::fs::read_to_string(&victim).unwrap(), "keep me");
+        assert!(append_log(&dir, "2026-11-08", "{}", 1000, 3).is_ok());
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

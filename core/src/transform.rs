@@ -18,9 +18,24 @@ impl Model {
         self.check_unlocked(ids)?;
         // a group carries the components placed inside it
         let mut ids = ids.to_vec();
-        for g in ids.clone().iter().filter(|g| self.groups.contains_key(g)) {
-            let tree = self.subtree(*g);
-            ids.extend(self.instances.iter().filter(|(_, i)| i.parent.is_some_and(|p| tree.contains(&p))).map(|(&k, _)| k));
+        // every group named, and every group nested in one (the tree and the placements are worked out once, not once per group)
+        let mut in_moved_groups: BTreeSet<Id> = BTreeSet::new();
+        if ids.iter().any(|g| self.groups.contains_key(g)) {
+            let kids = self.group_children();
+            let mut placed: HashMap<Id, Vec<Id>> = HashMap::new();
+            for (&k, i) in &self.instances {
+                if let Some(p) = i.parent {
+                    placed.entry(p).or_default().push(k);
+                }
+            }
+            for g in ids.clone().iter().filter(|g| self.groups.contains_key(g)) {
+                crate::deadline::poll();
+                let tree = Self::subtree_in(&kids, *g);
+                for t in &tree {
+                    ids.extend(placed.get(t).into_iter().flatten().copied());
+                }
+                in_moved_groups.extend(tree);
+            }
         }
         ids.sort();
         ids.dedup();
@@ -28,10 +43,7 @@ impl Model {
         let vs = if geo.is_empty() { BTreeSet::new() } else { self.vertices_of(&geo)? };
         let opening_folds = self.plan_opening_folds(&vs, t)?;
         // subdivision cages follow their groups (and find their mirror plane again)
-        let mut moved_cages = std::collections::BTreeSet::new();
-        for g in ids.iter().filter(|g| self.groups.contains_key(g)) {
-            moved_cages.extend(self.subtree(*g).into_iter().filter(|x| self.cages.contains_key(x)));
-        }
+        let moved_cages: BTreeSet<Id> = self.cages.keys().copied().filter(|x| in_moved_groups.contains(x)).collect();
         for g in moved_cages {
             let c = self.cages.get_mut(&g).unwrap();
             for p in c.points.iter_mut() {
@@ -191,21 +203,52 @@ impl Model {
 
     /// Copy faces, groups or instances, offset by `by`. Returns the new ids.
     pub fn duplicate(&mut self, ids: &[Id], by: DVec3) -> Result<Vec<Id>> {
-        self.duplicate_with(ids, by, &mut crate::model::Lookup::default())
+        let mut index = crate::model::CopyIndex::new(self);
+        self.duplicate_with(ids, by, &mut crate::model::Lookup::default(), &mut index)
     }
 
-    fn duplicate_with(&mut self, ids: &[Id], by: DVec3, look: &mut crate::model::Lookup) -> Result<Vec<Id>> {
+    fn duplicate_with(&mut self, ids: &[Id], by: DVec3, look: &mut crate::model::Lookup, index: &mut crate::model::CopyIndex) -> Result<Vec<Id>> {
         self.check_room(self.copy_cost(ids))?;
         let mut out = Vec::new();
         let mut loose = Vec::new();
+        // a group (or component) whose group is also in the list is copied with that group, once: not again by itself
+        let named: std::collections::HashSet<Id> = ids.iter().copied().filter(|id| self.groups.contains_key(id)).collect();
+        let inside_named = |m: &Model, mut up: Option<Id>| {
+            if named.is_empty() {
+                return false;
+            }
+            for _ in 0..=crate::model::MAX_GROUP_DEPTH {
+                match up {
+                    Some(g) if named.contains(&g) => return true,
+                    Some(g) => up = m.groups.get(&g).and_then(|x| x.parent),
+                    None => return false,
+                }
+            }
+            false
+        };
         for &id in ids {
             if self.groups.contains_key(&id) {
-                out.push(self.copy_group(id, by, None)?);
+                self.check_deadline()?;
+                let parent = self.groups[&id].parent;
+                if inside_named(self, parent) {
+                    continue;
+                }
+                out.push(self.copy_group_into(id, by, None, parent, index)?);
             } else if let Some(i) = self.instances.get(&id).cloned() {
+                if inside_named(self, i.parent) {
+                    continue;
+                }
                 let nid = self.new_id();
+                if let Some(p) = i.parent {
+                    index.instances.entry(p).or_default().push(nid);
+                }
                 self.instances.insert(nid, crate::model::Instance { transform: DMat4::from_translation(by) * i.transform, ..i });
                 out.push(nid);
-            } else if self.faces.contains_key(&id) {
+            } else if let Some(f) = self.faces.get(&id) {
+                // a face whose group is also in the list goes with that group, once
+                if inside_named(self, f.group) {
+                    continue;
+                }
                 loose.push(id);
             } else {
                 bail!("{id} can't be copied (pick faces, groups or components)");
@@ -253,8 +296,9 @@ impl Model {
         self.check_room(self.copy_cost(ids).saturating_mul(count))?;
         let mut out = Vec::new();
         let mut look = crate::model::Lookup::default();
+        let mut index = crate::model::CopyIndex::new(self);
         for k in 1..=count {
-            out.extend(self.duplicate_with(ids, by * k as f64, &mut look)?);
+            out.extend(self.duplicate_with(ids, by * k as f64, &mut look, &mut index)?);
         }
         Ok(out)
     }

@@ -329,6 +329,29 @@ const isMac = process.platform === 'darwin';
   check((await p.locator('.views button', { hasText: /^Parallel$/ }).getAttribute('class'))?.includes('on'), 'Camera > Parallel projection turns the view bar button on');
   await openMenu(p, 'Camera');
   check((await item(p, 'view.perspective').getAttribute('aria-checked')) === 'false' && (await item(p, 'view.parallel').getAttribute('aria-checked')) === 'true', 'and the radio moves');
+  await p.keyboard.press('Escape');
+  await wait(100);
+  // the standard views still turn the camera while Parallel projection is on
+  const lookDir = () =>
+    p.evaluate(() => {
+      const T = window.__sketchcraftView.current;
+      const d = T.camera.position.clone().sub(T.controls.target).normalize();
+      return d.toArray().map((x) => Math.round(x * 100) / 100);
+    });
+  const standardView = async (id) => {
+    await openMenu(p, 'Camera');
+    await p.getByRole('menuitem', { name: 'Standard views' }).hover();
+    await item(p, id).waitFor();
+    await item(p, id).click();
+  };
+  await standardView('view.top');
+  await wait(900);
+  check(Math.abs((await lookDir())[2]) > 0.95, 'in Parallel projection, Standard Views > Top looks straight down');
+  await standardView('view.front');
+  await wait(900);
+  const front = await lookDir();
+  check(front[1] < -0.9, 'in Parallel projection, Standard Views > Front looks along the y axis');
+  await openMenu(p, 'Camera');
   await item(p, 'view.perspective').click();
   await wait(100);
 

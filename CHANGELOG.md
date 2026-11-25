@@ -141,8 +141,61 @@ What changed in each SketchCraft release, newest first. The format follows
     after updates: layers you made are kept, with no move to a backup on the first run after an update.
   - The SketchCraft AI box cleans names from the model before the local model reads them, and its debug log has a size
     limit and keeps only recent days.
-  - The plugin safety check counts a probe as blocked only when the policy blocked it, not for any error.
+  - The plugin safety check counts a probe as blocked only when the policy blocked it, not for any error, and a bare
+    "load failed" counts only when the window's own policy was seen forbidding that load.
+  - PhotoCraft reads its small bookkeeping file with a size limit and without following links. The AI box also drops
+    hidden text characters from names and won't append to a debug file that has other links.
+  - Updated a dependency (`cookie`) to its fixed release.
   - Android: the app shares less through its file provider.
+  - More work limits: CNC files take a limited number of parts and are fast on big models; a curve or line from a plugin
+    or an agent that crosses what is already drawn many times is refused (and any long drawing is stopped and put back);
+    Print check stays quick on parts stacked in one place and says when it could only check some places; a list of ids
+    names each thing once; and placing many components one after another is much faster (the undo list is no longer
+    re-measured on every step).
+  - Fix model joins a flat grid imported from a DXF into one face every time, and a plugin asking for Lay out parts again
+    no longer takes over a view you switched on.
+  - A model whose groups loop back on themselves opens safely: the loop is broken and you are told, instead of copying
+    the group crashing the app. Grouping the group you are working in is refused, and copying a very deeply nested group
+    works. Duplicating thousands of groups at once is fast, and a plugin or agent that asks for too much copying or
+    solid work is stopped and put back. Solid tools treat a repeated id as one, a curve that crosses itself many times is
+    refused even when other lines are nearby, the undo list keeps less memory for big pictures, and the SketchCraft AI box
+    also drops invisible filler characters from names.
+  - Groups can be nested up to 256 levels (far more than any real model); a file nested deeper opens with the extra
+    levels brought up to the limit and tells you, and the Outliner draws any nesting without trouble. Opening a file
+    with very many looping groups is fast, and the notice names the groups it repaired in your language, also for a
+    restored backup or an inserted part. Making a component, exploding it and deleting many lines are fast on big models
+    and stop cleanly when a plugin or agent takes too long. Selecting a group and a group inside it, then Duplicate,
+    copies the outer group once with everything in it. One big solid operation from a plugin or agent is now stopped and
+    put back instead of holding gigabytes of memory.
+  - Bevel and Round are much faster on shapes with many edges (a 100-sided prism, all edges, takes a fraction of a
+    second), and Bevel, Slice and the joinery cuts from a plugin or agent are stopped and put back when they take too
+    long or grow too big. A very large model (tens of thousands of groups) reaches the window quickly, and the Outliner
+    shows a limited number of rows with a translated "more rows" line (search to reach the rest). Copying a face together
+    with its group copies it once, and hidden characters in group names no longer reach notices or replies.
+  - Every command an agent or a plugin runs now has a time limit, and is undone if it runs out; a whole call from an agent
+    has a limit too, and is undone as a whole if it runs out, so many quick commands can't add up to minutes. Your own
+    commands have no limit. Intersect is fast on big models and a sweep (Follow me) too large for the model is refused
+    before any of it is built. Text sent to an agent drops hidden characters (the stored names are unchanged), and Flip
+    and Bevel are quicker on big models.
+  - Intersect works again on many overlapping solids (a stale entry in a cache stopped it).
+  - More hardening of those limits: a call that runs out of time can no longer discard what you saved in the app while it ran
+    (it is taken back step by step instead, and a backup is kept first); the clock is checked before every command of a
+    call, a call holds at most 1,000 commands and a plugin run at most 10,000 and 30 seconds of work, and a call is saved
+    once instead of after every command. Reports, IFC export, Reverse, Paint, Move, Make component and Bevel are fast on
+    models with thousands of groups, pictures drawn for a plugin or an
+    agent are limited, and line breaks no longer get through in names.
+  - Saving the model is safer when several programs edit it: every writer takes a lock and checks, right before the file
+    is replaced, that nobody else saved first, and a call from an agent that runs out of time is now taken back exactly
+    (only what the call changed, never your own saves, however big the call) and tells the agent plainly when part of it
+    could not be. After an agent's save the app runs your next step again by itself instead of asking you to repeat it,
+    files set aside are private to you, the notice says whose work was set aside, a backup is kept at the start of a long
+    agent call, and Vertex colors on thousands of groups is fast.
+  - Hardening of that saving: your saved work is never replaced when an agent's work can't be set aside first (the notice
+    says so, and the agent is told plainly), a call that runs out of time is taken back even while you save every second or
+    two, and you are told when it could not be fully taken back. Files set aside get a new name each time, never follow a
+    link, and work with very long model names; backups and copies of unreadable files are private to you; a broken lock
+    file is repaired (or you are told once that none can be used); and a file rewritten in place with its old time is
+    noticed.
 
 ## [0.3.9] - 2026-11-20
 

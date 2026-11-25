@@ -226,6 +226,8 @@ pub struct Engine {
     pt: Option<crate::pt::Progress>,
     /// memory undo history may use (estimated bytes); 0: the default
     pub undo_budget: usize,
+    /// what each copy of the model in the undo and redo lists measured, so a step is measured once, not on every command
+    step_sizes: HashMap<(usize, usize, usize), usize>,
     /// an open batch: the model before it began, the revision then, and when
     batch: Option<(Model, u64, std::time::Instant)>,
     /// whose the open batch is (see `BatchKind`)
@@ -234,6 +236,12 @@ pub struct Engine {
     batch_last: Option<std::time::Instant>,
     /// counts batches, so an `end_batch` can say which one it means
     batch_seq: u64,
+    /// what the plugin commands in the open batch have used so far: how many, and how much engine time
+    batch_used: (usize, std::time::Duration),
+    /// the open plugin batch used up its limits and was taken back: every command until it ends is refused
+    batch_dead: bool,
+    /// the seconds the command now running is allowed when an agent or a plugin runs it (for the message when it is cut off)
+    limit_secs: u64,
     /// another client (the app, a plugin's run) was told to wait for an agent's batch and hasn't had its turn yet
     turn_waiting: bool,
     /// when an agent's batch last closed: while someone waits, the agent's next batch waits `BATCH_TURN` after it
@@ -263,6 +271,18 @@ pub struct Engine {
     last_batch: Option<(String, usize)>,
     /// drawings of sheet viewports and hatches kept between page views and exports (never saved; see `draft::cache`)
     pub drawings: crate::draft::cache::Drawings,
+}
+
+/// Most commands one plugin run may send (a whole run is one batch).
+pub const MAX_PLUGIN_COMMANDS: usize = 10_000;
+
+/// What `Engine::call_snapshot` keeps.
+pub struct CallSnapshot {
+    model: Model,
+    ctx: Option<Id>,
+    names: HashMap<String, Id>,
+    undo_len: usize,
+    batch_open: bool,
 }
 
 /// Whose an open batch is. A batch groups ONE client's commands into one undo step; another client's commands never join it.
@@ -305,9 +325,14 @@ pub const MAX_OPEN_BYTES: u64 = 768 << 20;
 /// its estimate. A library part or a thumbnail is held to `library::MAX_LIBRARY_BYTES`.
 pub const MAX_OPEN_BYTES_UNTRUSTED: u64 = 256 << 20;
 
+/// How long copying (copy, duplicate, array) for an agent or a plugin may take before it is stopped and put back.
+pub(crate) const UNTRUSTED_COPY_SECONDS: std::time::Duration = std::time::Duration::from_secs(8);
 const UNDO_LIMIT: usize = 200;
-/// Undo history never holds more than about this much (per-step sizes are estimates).
-const UNDO_BYTES: usize = 768 << 20;
+/// Undo history never holds more than about this much (per-step sizes are estimates; measured with 11 MB picture
+/// steps the estimate matches the live heap to within a few percent). The system holds more than the live heap, since
+/// memory freed as old steps are dropped isn't all handed back at once: about 1.5 times the budget in all on macOS, so
+/// the budget is set to keep that under about 800 MB.
+pub const UNDO_BYTES: usize = 512 << 20;
 
 fn v3(a: [f64; 3]) -> DVec3 {
     DVec3::from(a)
@@ -431,6 +456,9 @@ impl Engine {
         if let Err(e) = self.batch_gate(caller, &v) {
             return json!({"ok": false, "error": e});
         }
+        if let Some(e) = self.plugin_budget(caller, &v) {
+            return json!({"ok": false, "error": e, "timed_out": true});
+        }
         let name = v.as_object_mut().and_then(|o| o.remove("as")).and_then(|n| n.as_str().map(String::from));
         if let Err(e) = crate::policy::vet(caller, &mut v) {
             return json!({"ok": false, "error": e});
@@ -440,13 +468,27 @@ impl Engine {
             crate::policy::settle(caller, false);
             return json!({"ok": false, "error": e.to_string()});
         }
+        dedupe_ids(&mut v);
+        let mut limit = crate::deadline::command_seconds(v.get("cmd").and_then(Value::as_str).unwrap_or(""));
+        // a plugin run's commands share one budget of engine time
+        let in_plugin_run = self.batch.is_some() && matches!(caller, Caller::Plugin);
+        if in_plugin_run {
+            limit = limit.min(crate::deadline::call_seconds().saturating_sub(self.batch_used.1));
+        }
+        self.limit_secs = limit.as_secs();
+        let started = std::time::Instant::now();
         let r = match serde_json::from_value::<Command>(v) {
+            // an agent's or a plugin's command (read-only ones too) runs under the engine-wide limit; the person's has none
+            Ok(cmd) if self.untrusted => crate::deadline::command_scope(limit, || self.exec(cmd)),
             Ok(cmd) => self.exec(cmd),
             Err(e) => {
                 crate::policy::settle(caller, false);
                 return json!({"ok": false, "error": format!("bad command: {e}")});
             }
         };
+        if in_plugin_run {
+            self.batch_used.1 += started.elapsed();
+        }
         crate::policy::settle(caller, r["ok"] == true);
         if let (Some(n), true) = (name, r["ok"] == true) {
             if let Some(id) = ["face", "group", "instance", "guide", "dimension", "text", "sheet", "viewport"]
@@ -459,6 +501,41 @@ impl Engine {
             }
         }
         r
+    }
+
+    /// A plugin's run is one batch, and all of its commands share a count and a budget of engine time (the same seconds
+    /// an agent's call gets). When either runs out the batch is taken back whole and everything the plugin sends until
+    /// it ends is refused. Returns the refusal for this command, if any.
+    fn plugin_budget(&mut self, caller: &Caller, v: &Value) -> Option<String> {
+        if !matches!(caller, Caller::Plugin) || self.batch.is_none() {
+            return None;
+        }
+        if matches!(v.get("cmd").and_then(Value::as_str), Some("begin_batch" | "end_batch")) {
+            return None;
+        }
+        if self.batch_dead {
+            return Some("This plugin run was stopped (it used up its limits) and everything it did was undone.".into());
+        }
+        self.batch_used.0 += 1;
+        let over_count = self.batch_used.0 > MAX_PLUGIN_COMMANDS;
+        let over_time = self.batch_used.1 >= crate::deadline::call_seconds();
+        if !(over_count || over_time) {
+            return None;
+        }
+        if let Some(b) = self.batch.as_mut() {
+            self.model = b.0.clone();
+            self.revision += 1;
+            b.1 = self.revision;
+        }
+        self.redo.clear();
+        self.redo_origins.clear();
+        self.drawings.clear();
+        self.batch_dead = true;
+        Some(if over_count {
+            format!("This plugin sent more than {MAX_PLUGIN_COMMANDS} commands in one run, so the run was stopped and everything it did was undone.")
+        } else {
+            format!("This plugin used its {} seconds of work, so the run was stopped and everything it did was undone.", crate::deadline::call_seconds().as_secs())
+        })
     }
 
     /// Is the open batch past its limit: too long since it began, or (an app-made one) too long since it was last used?
@@ -590,6 +667,73 @@ impl Engine {
         }
     }
 
+    /// Everything needed to undo a whole call of an agent's commands (see `rollback_call`).
+    pub fn call_snapshot(&self) -> CallSnapshot {
+        CallSnapshot { model: self.model.clone(), ctx: self.ctx, names: self.names.clone(), undo_len: self.undo.len(), batch_open: self.batch.is_some() }
+    }
+
+    /// Put the model back as it was when `call_snapshot` was taken: what the commands of one call did is thrown
+    /// away (it is not a step to undo). A batch the call opened is dropped with it.
+    pub fn rollback_call(&mut self, s: CallSnapshot) {
+        self.model = s.model;
+        self.ctx = s.ctx;
+        self.names = s.names;
+        self.undo.truncate(s.undo_len);
+        self.step_origins.truncate(s.undo_len);
+        if !s.batch_open && self.batch.is_some() {
+            self.batch = None;
+            self.batch_kind = BatchKind::None;
+            self.batch_origin = None;
+        }
+        self.redo.clear();
+        self.redo_origins.clear();
+        self.drawings.clear();
+        self.revision += 1;
+    }
+
+    /// The model a call began with (the snapshot is consumed).
+    pub fn into_snapshot_model(s: CallSnapshot) -> Model {
+        s.model
+    }
+
+    /// The model as it was when the snapshot was taken.
+    pub fn snapshot_model(s: &CallSnapshot) -> &Model {
+        &s.model
+    }
+
+    /// An aborted call's model is replaced by `model` (the file as it stands with the call taken out): the steps the
+    /// call added to the history go with it, and nothing is left to Redo. A batch the call opened is dropped.
+    pub fn replace_after_call(&mut self, model: Model, undo_len: usize, batch_was_open: bool) {
+        self.model = model;
+        self.undo.truncate(undo_len);
+        self.step_origins.truncate(undo_len);
+        if !batch_was_open && self.batch.is_some() {
+            self.batch = None;
+            self.batch_kind = BatchKind::None;
+            self.batch_origin = None;
+        }
+        self.redo.clear();
+        self.redo_origins.clear();
+        self.drawings.clear();
+        self.revision += 1;
+    }
+
+    /// Was a batch open when the snapshot was taken?
+    pub fn snapshot_batch_open(s: &CallSnapshot) -> bool {
+        s.batch_open
+    }
+
+    /// How many undo steps there were when the snapshot was taken.
+    pub fn snapshot_undo_len(s: &CallSnapshot) -> usize {
+        s.undo_len
+    }
+
+    /// Forget the steps Redo would go forward through (after a call's own steps were taken back one by one).
+    pub fn drop_redo(&mut self) {
+        self.redo.clear();
+        self.redo_origins.clear();
+    }
+
     /// Close an open batch now (the person went on working): what it did becomes one undo step.
     pub fn close_batch(&mut self) {
         self.end_batch();
@@ -652,7 +796,7 @@ impl Engine {
     }
 
     /// Replace the whole model with `model` as one undoable step (a restore from a backup).
-    pub fn replace_model(&mut self, model: Model) -> Result<()> {
+    pub fn replace_model(&mut self, model: Model) -> Result<crate::model::GroupRepair> {
         if self.batch.is_some() {
             bail!("a plugin is still running; try again when it has finished");
         }
@@ -665,6 +809,7 @@ impl Engine {
         }
         let mut model = model;
         model.repair_ids();
+        let repair = model.repair_group_nesting();
         model.vet_pictures();
         model.vet_face_data();
         model.vet_sheets();
@@ -682,7 +827,7 @@ impl Engine {
         self.oversize = over;
         self.revision += 1;
         self.trim_undo();
-        Ok(())
+        Ok(repair)
     }
 
     /// How many steps Undo can go back.
@@ -701,11 +846,15 @@ impl Engine {
     pub fn environment(&mut self, kind: &str) -> Result<Value> {
         let (was, outer) = (self.nested_untrusted, self.untrusted);
         self.nested_untrusted = outer;
-        let r = self.environment_inner(kind);
+        // (also when it unwinds: the command ran out of its time, say)
+        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.environment_inner(kind)));
         self.nested_untrusted = was;
         // the nested commands set the flag as they ran: it goes back to what the caller's own command had
         self.untrusted = outer;
-        r
+        match r {
+            Ok(r) => r,
+            Err(p) => std::panic::resume_unwind(p),
+        }
     }
 
     fn environment_inner(&mut self, kind: &str) -> Result<Value> {
@@ -929,6 +1078,12 @@ impl Engine {
                 restore(self, saved);
                 json!({"ok": false, "error": e.to_string()})
             }
+            Err(panic) if crate::deadline::is_exceeded(&*panic) => {
+                restore(self, saved);
+                self.model.deadline = None;
+                self.oversize = oversize_before;
+                json!({"ok": false, "error": format!("that took longer than the time an agent's or a plugin's command is given ({} s), so it was stopped and nothing was changed (use fewer or simpler parts, or a smaller model, or do it in steps)", if self.limit_secs > 0 { self.limit_secs } else { crate::deadline::AGENT_COMMAND_SECONDS.as_secs() }), "timed_out": true})
+            }
             Err(panic) => {
                 let msg = panic.downcast_ref::<&str>().map(|s| s.to_string()).or_else(|| panic.downcast_ref::<String>().cloned()).unwrap_or_else(|| "unknown".into());
                 eprintln!("sketchcraft: a command panicked: {msg}");
@@ -970,9 +1125,10 @@ impl Engine {
     /// Keep undo history within `UNDO_LIMIT` steps and `UNDO_BYTES` of memory
     /// (the newest step is always kept).
     fn trim_undo(&mut self) {
-        let mut total: usize = self.undo.iter().map(Step::approx_bytes).sum();
+        let mut memo = std::mem::take(&mut self.step_sizes);
+        let mut total: usize = self.undo.iter().map(|s| step_bytes(&mut memo, s)).sum();
         while self.undo.len() > UNDO_LIMIT || (self.undo.len() > 1 && total > if self.undo_budget == 0 { UNDO_BYTES } else { self.undo_budget }) {
-            total = total.saturating_sub(self.undo[0].approx_bytes());
+            total = total.saturating_sub(step_bytes(&mut memo, &self.undo[0]));
             self.undo.remove(0);
             if !self.step_origins.is_empty() {
                 self.step_origins.remove(0);
@@ -980,14 +1136,18 @@ impl Engine {
         }
         // what Redo holds counts against the same memory (patches are small; copies are not)
         let limit = if self.undo_budget == 0 { UNDO_BYTES } else { self.undo_budget };
-        let mut redo_total: usize = self.redo.iter().map(Step::approx_bytes).sum();
+        let mut redo_total: usize = self.redo.iter().map(|s| step_bytes(&mut memo, s)).sum();
         while self.redo.len() > 1 && redo_total > limit {
-            redo_total = redo_total.saturating_sub(self.redo[0].approx_bytes());
+            redo_total = redo_total.saturating_sub(step_bytes(&mut memo, &self.redo[0]));
             self.redo.remove(0);
             if !self.redo_origins.is_empty() {
                 self.redo_origins.remove(0);
             }
         }
+        // forget the copies that are gone
+        let live: std::collections::HashSet<(usize, usize, usize)> = self.undo.iter().chain(self.redo.iter()).flat_map(step_keys).collect();
+        memo.retain(|k, _| live.contains(k));
+        self.step_sizes = memo;
     }
 
     /// Undo (`back`) or Redo one step. A step taken since the last reload is a copy of the model; one taken before
@@ -1257,4 +1417,48 @@ fn video_dir(session: &str) -> Result<std::path::PathBuf> {
 /// Where app skins live: ~/Documents/SketchCraft/Skins.
 fn skins_dir() -> std::path::PathBuf {
     crate::library::default_dir().parent().map(|p| p.join("Skins")).unwrap_or_else(|| std::path::PathBuf::from("Skins"))
+}
+
+/// A list of `ids` names each thing once: a repeat would only make the command do (and pay for) the same work again.
+/// The first mention keeps its place. (Not for the commands that take two boards or shapes, where the order and the
+/// count mean something: a board named twice is an error they say so about.)
+fn dedupe_ids(v: &mut Value) {
+    // (`solid` subtract, trim and split take exactly two different solids and say so; its other tools take any number, and a repeat is nothing new)
+    let cmd = v.get("cmd").and_then(Value::as_str);
+    if matches!(cmd, Some("dado" | "rabbet" | "tenon")) || (cmd == Some("solid") && !matches!(v.get("op").and_then(Value::as_str), Some("union" | "intersect" | "outer_shell"))) {
+        return;
+    }
+    if let Some(a) = v.get_mut("ids").and_then(Value::as_array_mut) {
+        if a.iter().all(Value::is_u64) {
+            let mut seen = std::collections::HashSet::new();
+            a.retain(|x| seen.insert(x.as_u64()));
+        }
+    }
+}
+
+/// Who a copy of the model is: where it lives and how big it is (a copy in the history is never changed, so the same
+/// place with the same counts is the same copy).
+fn model_key(m: &Model) -> (usize, usize, usize) {
+    (m as *const Model as usize, m.next_id as usize, m.vertices.len() + m.edges.len() + m.faces.len() + m.instances.len() + m.groups.len())
+}
+
+fn step_keys(s: &Step) -> Vec<(usize, usize, usize)> {
+    match s {
+        Step::Snap(m) => vec![model_key(m)],
+        Step::Patch(_) => vec![],
+        Step::Stale { before, after } => vec![model_key(before), model_key(after)],
+    }
+}
+
+fn sized(memo: &mut HashMap<(usize, usize, usize), usize>, m: &Model) -> usize {
+    *memo.entry(model_key(m)).or_insert_with(|| m.approx_bytes())
+}
+
+/// `Step::approx_bytes`, measuring each copy of the model once.
+fn step_bytes(memo: &mut HashMap<(usize, usize, usize), usize>, s: &Step) -> usize {
+    match s {
+        Step::Snap(m) => sized(memo, m),
+        Step::Patch(_) => s.approx_bytes(),
+        Step::Stale { before, after } => sized(memo, before) + if std::sync::Arc::strong_count(after) == 1 { sized(memo, after) } else { 0 },
+    }
 }

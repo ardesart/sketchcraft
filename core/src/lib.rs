@@ -5,6 +5,7 @@
 //! all drive exactly the same thing.
 
 pub mod anchors;
+pub mod text;
 pub mod animate;
 pub mod backups;
 pub mod assets;
@@ -13,6 +14,7 @@ pub mod callouts;
 pub mod cloud;
 pub mod commands;
 pub mod components;
+pub mod deadline;
 pub mod csg;
 pub mod drafting;
 pub mod draft;

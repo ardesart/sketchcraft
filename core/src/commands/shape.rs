@@ -5,6 +5,7 @@ use super::*;
 
 impl Engine {
     pub(super) fn run_shape(&mut self, cmd: Command) -> Result<Value> {
+        let untrusted = self.untrusted;
         let m: &mut Model = active_model!(self);
         Ok(match cmd {
             Command::Weld { edges } => json!({"curve": m.weld(&edges)?}),
@@ -117,18 +118,18 @@ impl Engine {
                 json!({})
             }
             Command::Bevel { edges, size, segments } => {
-                let groups = m.bevel(&edges, size, segments)?;
+                let groups = m.with_deadline(untrusted.then_some(crate::csg::SOLID_SECONDS), |m| m.bevel(&edges, size, segments))?;
                 json!({"groups": groups, "group": groups.first()})
             }
             Command::Divide { edge, count } => json!({"points": m.divide(edge, count)?}),
             Command::Slice { id, origin, normal } => {
-                let groups = m.slice(id, v3(origin), v3(normal))?;
+                let groups = m.with_deadline(untrusted.then_some(crate::csg::SOLID_SECONDS), |m| m.slice(id, v3(origin), v3(normal)))?;
                 json!({"groups": groups, "group": groups.first()})
             }
             Command::Intersect { ids, with } => json!({"lines": m.intersect(&ids, with != "selection")?}),
             Command::Flip { ids, axis } => json!({"moved": m.flip(&ids, axis_index(&axis)?)?}),
             Command::Solid { op, ids } => {
-                let groups = crate::csg::solid(m, &op, &ids)?;
+                let groups = m.with_deadline(untrusted.then_some(crate::csg::SOLID_SECONDS), |m| crate::csg::solid(m, &op, &ids))?;
                 json!({"groups": groups, "group": groups.first()})
             }
             // on a scratch copy: checking adds paint entries it doesn't need to keep
