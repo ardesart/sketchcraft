@@ -1705,6 +1705,10 @@ export default function Viewport(props: Props) {
     const dist = T.camera.position.distanceTo(T.controls.target);
     T.persp.position.copy(T.controls.target.clone().addScaledVector(d, dist));
     T.persp.lookAt(T.controls.target);
+    if (T.camera === T.ortho) {
+      T.ortho.position.copy(T.persp.position);
+      T.ortho.quaternion.copy(T.persp.quaternion);
+    }
     fit();
   }
 
