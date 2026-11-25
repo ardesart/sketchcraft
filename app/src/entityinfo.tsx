@@ -5,6 +5,8 @@ import { selIds, type Sel } from "./selection";
 import { formatLength } from "./units";
 import { LineStyleControls } from "./linestyle";
 import { formatArea, formatVolume, type Run } from "./panelkit";
+import { aiName } from "./ai";
+import { labsAi } from "./labs";
 
 export function EntityInfo({ scene, sel, run }: { scene: Scene; sel: Sel; run: Run }) {
   const [tag, setTag] = useState("");
@@ -36,6 +38,7 @@ export function EntityInfo({ scene, sel, run }: { scene: Scene; sel: Sel; run: R
   return (
     <div className="section">
       <div className="section-title">{title}</div>
+      <NameField scene={scene} sel={sel} run={run} />
       <div className="kv">
         {faces.length > 0 && (
           <>
@@ -242,4 +245,41 @@ function guessIfc(name: string): string {
   if (has("beam")) return "IfcBeam";
   if (has("rail") || has("fence")) return "IfcRailing";
   return "IfcBuildingElementProxy";
+}
+
+/** Name: one group or component is renamed; loose faces are grouped under the name (so they can be named at all).
+ *  Under it, the name SketchCraft AI knows it by. */
+function NameField({ scene, sel, run }: { scene: Scene; sel: Sel; run: Run }) {
+  const groups = scene.groups.filter((g) => sel.groups.includes(g.id));
+  const insts = scene.instances.filter((i) => sel.instances.includes(i.id));
+  const one = groups.length + insts.length === 1 && sel.faces.length === 0 && sel.edges.length === 0 ? (groups[0] ?? insts[0]) : null;
+  const loose = groups.length === 0 && insts.length === 0 && sel.faces.length > 0;
+  const current = one?.name ?? "";
+  const [name, setName] = useState(current);
+  useEffect(() => setName(current), [current, one?.id, sel.faces.join(",")]);
+  if (!one && !loose) return null;
+  const commit = async () => {
+    const n = name.trim();
+    if (!n || n === current) return;
+    if (one) await run({ cmd: "rename", id: one.id, name: n });
+    else await run({ cmd: "group", ids: sel.faces, name: n });
+  };
+  const ai = aiName(name);
+  return (
+    <label className="field" data-testid="entity-name">
+      <span>Name</span>
+      <input
+        value={name}
+        placeholder={loose ? "Name it (groups the selection)" : "Name"}
+        onChange={(e) => setName(e.target.value)}
+        onBlur={() => void commit()}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+          if (e.key === "Escape") setName(current);
+        }}
+        data-testid="entity-name-input"
+      />
+      {ai && labsAi() && <span className="muted small" data-testid="entity-ai-name">SketchCraft AI calls it @{ai}</span>}
+    </label>
+  );
 }

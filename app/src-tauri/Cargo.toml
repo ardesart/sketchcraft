@@ -1,10 +1,15 @@
 [package]
 name = "sketchcraft-app"
-version = "0.3.9"
+version = "0.3.10"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/jasonsutter87/sketchcraft"
 description = "SketchCraft desktop app"
+
+# A library too, so the Android app (and later iOS) can load it; src/main.rs is the desktop program.
+[lib]
+name = "sketchcraft_app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -12,7 +17,16 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 sketchcraft-core = { path = "../../core" }
 serde_json = "1"
+# the PhotoCraft bridge (src/photocraft.rs): OpenRaster is a zip of PNGs; the same versions the engine uses
+base64 = "0.22"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+# a fixed, standard content hash for the PhotoCraft bridge (already in the engine's dependency tree)
+sha2 = "0.10"
+zip = { version = "9", default-features = false, features = ["deflate"] }
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 tauri-plugin-process = "2"
+
+# self-update is for computers; a phone gets a new APK or store update
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-updater = "2"

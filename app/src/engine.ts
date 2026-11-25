@@ -153,7 +153,18 @@ export interface SectionInfo {
   normal: Vec3;
 }
 
+/** the parts laid out flat (`lay_out_parts`): what the view shows instead of the model */
+export interface LaidOut {
+  parts: { id: number; name: string; kind: "group" | "component"; material: string | null; size: [number, number, number] }[];
+  gap: number;
+  bounds: { min: [number, number, number]; max: [number, number, number] } | null;
+  /** visible faces in no group: no part, so not shown */
+  loose_faces: number;
+}
+
 export interface Scene {
+  /** the parts are laid out flat to look at; null or absent: the model as it is */
+  laid_out?: LaidOut | null;
   /** who made the step Undo would take back / Redo would do again: "you", "plugin “X”", "an agent" */
   undo_origin?: string | null;
   redo_origin?: string | null;
@@ -232,6 +243,8 @@ export interface Scene {
   doc: string;
   /** something to tell the person (a damaged file was set aside, a save failed) */
   notice?: string;
+  /** when the notice is about groups repaired as a file or backup came in: the facts it is made from (the window words it) */
+  notice_repair?: Record<string, unknown>;
 }
 
 export interface Reply {
@@ -243,6 +256,8 @@ export interface Reply {
 }
 
 export const inTauri = "__TAURI_INTERNALS__" in window;
+/** the Android (later iOS) app: tablets for now; it doesn't update itself */
+export const onMobileApp = inTauri && /Android|iPhone|iPad/i.test(navigator.userAgent);
 const BRIDGE = `http://127.0.0.1:${import.meta.env.VITE_BRIDGE_PORT ?? 5175}`;
 
 // In a plain browser the bridge needs its per-launch token. The dev server

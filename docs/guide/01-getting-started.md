@@ -11,7 +11,7 @@ It's free.
 | **Mac** (Apple silicon or Intel) | the `.dmg`; drag SketchCraft to Applications | macOS asks if you trust it: **System Settings › Privacy & Security › Open Anyway** |
 | **Windows 10 or 11** | the setup `.exe` or `.msi` | if Windows shows "Windows protected your PC": **More info › Run anyway** |
 | **Windows, no installer** | the **portable ZIP**: unzip anywhere, open `SketchCraft.exe` | same as above |
-| **Linux** | `.AppImage` (any distro), `.deb` or `.rpm` | nothing special |
+| **Linux** (x64 or arm64) | `.AppImage` (any distro), `.deb` or `.rpm`; pick `amd64` / `x86_64` for most PCs, `aarch64` / `arm64` for ARM machines | nothing special |
 
 Those first-time prompts appear because SketchCraft isn't signed by Apple or
 Microsoft yet; they only ask once.

@@ -3,144 +3,156 @@
 
 /* ---------- dark skins: things that were drawn for a light page ---------- */
 
-[data-dark="1"] .tool.on,
-[data-dark="1"] .btn.primary {
-  color: var(--bg);
-}
+[data-dark="1"] {
+  .tool.on,
+  .btn.primary {
+    color: var(--bg);
+  }
 
-[data-dark="1"] input,
-[data-dark="1"] select,
-[data-dark="1"] textarea {
-  background: var(--bg);
-  color: var(--text);
-  border-color: var(--line-strong);
-}
+  input,
+  select,
+  textarea {
+    background: var(--bg);
+    color: var(--text);
+    border-color: var(--line-strong);
+  }
 
-[data-dark="1"] .toast {
-  background: var(--text);
-  color: var(--bg);
-}
-/* ---------- Cassette Deck: an original retro media-player look ---------- */
-
-[data-skin="cassette"] .topbar {
-  background: linear-gradient(180deg, #4a505d 0%, #343842 48%, #2a2d35 52%, #31353e 100%);
-  border-bottom: 1px solid #111;
-}
-
-[data-skin="cassette"] .panel,
-[data-skin="cassette"] .toolbar,
-[data-skin="cassette"] .views,
-[data-skin="cassette"] .ws-strip,
-[data-skin="cassette"] .sheet {
-  background: repeating-linear-gradient(90deg, #2e323b 0 2px, #30343d 2px 3px);
-  border: 2px solid;
-  border-color: #59606e #15171b #15171b #59606e;
-  box-shadow: none;
-}
-
-[data-skin="cassette"] .tool,
-[data-skin="cassette"] .views button,
-[data-skin="cassette"] .ws-strip button,
-[data-skin="cassette"] .ws-switch button,
-[data-skin="cassette"] .btn {
-  background: linear-gradient(180deg, #474d5a, #2f333c);
-  border: 1px solid;
-  border-color: #6c7383 #121418 #121418 #6c7383;
-  color: #cfd5df;
-  border-radius: 0;
-}
-
-[data-skin="cassette"] .tool:active,
-[data-skin="cassette"] .btn:active,
-[data-skin="cassette"] .tool.on,
-[data-skin="cassette"] .views button.on,
-[data-skin="cassette"] .ws-strip button.on,
-[data-skin="cassette"] .ws-switch button.on {
-  background: #15171b;
-  border-color: #121418 #6c7383 #6c7383 #121418;
-  color: #39ff6a;
-  text-shadow: 0 0 6px rgba(57, 255, 106, 0.6);
-}
-
-[data-skin="cassette"] .tool.on svg {
-  filter: drop-shadow(0 0 3px rgba(57, 255, 106, 0.7));
-}
-/* the doc name and the measurement box are the LCD */
-
-[data-skin="cassette"] .doc,
-[data-skin="cassette"] .measure input,
-[data-skin="cassette"] .measure label {
-  font-family: "SF Mono", Menlo, monospace;
-  color: #39ff6a;
-  text-shadow: 0 0 6px rgba(57, 255, 106, 0.55);
-}
-
-[data-skin="cassette"] .doc {
-  display: inline-block;
-  max-width: 220px;
-  padding: 3px 10px;
-  overflow: hidden;
-  background: #070a07;
-  border: 1px solid;
-  border-color: #121418 #6c7383 #6c7383 #121418;
-  letter-spacing: 0.06em;
-  white-space: nowrap;
-}
-
-[data-skin="cassette"] .measure {
-  background: #070a07;
-  border: 2px solid;
-  border-color: #15171b #59606e #59606e #15171b;
-
-  input {
-    background: transparent;
+  .toast {
+    background: var(--text);
+    color: var(--bg);
   }
 }
 
-[data-skin="cassette"] .section-title,
-[data-skin="cassette"] .ws-strip .lbl {
-  color: #8fe3a5;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  font-size: 10.5px;
+/* ---------- Cassette Deck: an original retro media-player look ---------- */
+
+[data-skin="cassette"] {
+  .topbar {
+    background: linear-gradient(180deg, #4a505d 0%, #343842 48%, #2a2d35 52%, #31353e 100%);
+    border-bottom: 1px solid #111;
+  }
+
+  .panel,
+  .toolbar,
+  .views,
+  .ws-strip,
+  .sheet {
+    background: repeating-linear-gradient(90deg, #2e323b 0 2px, #30343d 2px 3px);
+    border: 2px solid;
+    border-color: #59606e #15171b #15171b #59606e;
+    box-shadow: none;
+  }
+
+  .tool,
+  .views button,
+  .ws-strip button,
+  .ws-switch button,
+  .btn {
+    background: linear-gradient(180deg, #474d5a, #2f333c);
+    border: 1px solid;
+    border-color: #6c7383 #121418 #121418 #6c7383;
+    color: #cfd5df;
+    border-radius: 0;
+  }
+
+  .tool:active,
+  .btn:active,
+  .tool.on,
+  .views button.on,
+  .ws-strip button.on,
+  .ws-switch button.on {
+    background: #15171b;
+    border-color: #121418 #6c7383 #6c7383 #121418;
+    color: #39ff6a;
+    text-shadow: 0 0 6px rgba(57, 255, 106, 0.6);
+  }
+
+  .tool.on svg {
+    filter: drop-shadow(0 0 3px rgba(57, 255, 106, 0.7));
+  }
+
+  /* the doc name and the measurement box are the LCD */
+
+  .doc,
+  .measure input,
+  .measure label {
+    font-family: "SF Mono", Menlo, monospace;
+    color: #39ff6a;
+    text-shadow: 0 0 6px rgba(57, 255, 106, 0.55);
+  }
+
+  .doc {
+    display: inline-block;
+    max-width: 220px;
+    padding: 3px 10px;
+    overflow: hidden;
+    background: #070a07;
+    border: 1px solid;
+    border-color: #121418 #6c7383 #6c7383 #121418;
+    letter-spacing: 0.06em;
+    white-space: nowrap;
+  }
+
+  .measure {
+    background: #070a07;
+    border: 2px solid;
+    border-color: #15171b #59606e #59606e #15171b;
+
+    input {
+      background: transparent;
+    }
+  }
+
+  .section-title,
+  .ws-strip .lbl {
+    color: #8fe3a5;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    font-size: 10.5px;
+  }
 }
+
 /* ---------- Synthwave: a little glow ---------- */
 
-[data-skin="synthwave"] .tool.on,
-[data-skin="synthwave"] .btn.primary {
-  box-shadow: 0 0 12px rgba(255, 63, 180, 0.65);
+[data-skin="synthwave"] {
+  .tool.on,
+  .btn.primary {
+    box-shadow: 0 0 12px rgba(255, 63, 180, 0.65);
+  }
+
+  .topbar {
+    background: linear-gradient(90deg, #20123f, #2c1150 60%, #3a0f4f);
+    border-bottom: 1px solid #ff3fb4;
+  }
+
+  .section-title {
+    color: #5ef2ff;
+  }
 }
 
-[data-skin="synthwave"] .topbar {
-  background: linear-gradient(90deg, #20123f, #2c1150 60%, #3a0f4f);
-  border-bottom: 1px solid #ff3fb4;
-}
-
-[data-skin="synthwave"] .section-title {
-  color: #5ef2ff;
-}
 /* ---------- Blueprint: lines, not fills ---------- */
 
-[data-skin="blueprint"] .tool.on,
-[data-skin="blueprint"] .btn.primary {
-  background: transparent;
-  color: $white;
-  box-shadow: inset 0 0 0 1.5px $white;
-}
+[data-skin="blueprint"] {
+  .tool.on,
+  .btn.primary {
+    background: transparent;
+    color: $white;
+    box-shadow: inset 0 0 0 1.5px $white;
+  }
 
-[data-skin="blueprint"] .panel,
-[data-skin="blueprint"] .stage {
-  background-image: linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
-  background-size: 16px 16px;
-}
+  .panel,
+  .stage {
+    background-image: linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+    background-size: 16px 16px;
+  }
 
-[data-skin="blueprint"] .section-title {
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-}
+  .section-title {
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
 
-[data-skin="blueprint"] .btn.primary:hover {
-  background: rgba(255, 255, 255, 0.14);
+  .btn.primary:hover {
+    background: rgba(255, 255, 255, 0.14);
+  }
 }
 
 [data-skin="cassette"] .btn.primary {
@@ -179,41 +191,46 @@
     color: var(--text);
   }
 }
+
 /* ---------- Workshop: SketchCraft's own look ---------- */
 
-[data-skin="workshop"] .btn.primary,
-[data-skin="workshop"] .tool.on {
-  box-shadow: inset 0 -2px 0 #3a22a8;
-}
+[data-skin="workshop"] {
+  .btn.primary,
+  .tool.on {
+    box-shadow: inset 0 -2px 0 #3a22a8;
+  }
 
-[data-skin="workshop"] .btn.ghost,
-[data-skin="workshop"] .btn.small,
-[data-skin="workshop"] .views button.on,
-[data-skin="workshop"] .ws-switch button.on {
-  box-shadow: inset 0 -1.5px 0 var(--line-strong);
-}
-/* commands, numbers and labels in mono, like a drafting readout */
+  .btn.ghost,
+  .btn.small,
+  .views button.on,
+  .ws-switch button.on {
+    box-shadow: inset 0 -1.5px 0 var(--line-strong);
+  }
 
-[data-skin="workshop"] .measure input,
-[data-skin="workshop"] .measure label,
-[data-skin="workshop"] kbd,
-[data-skin="workshop"] .section-title,
-[data-skin="workshop"] .ws-strip .lbl {
-  font-family: "IBM Plex Mono", "SF Mono", Menlo, monospace;
-}
+  /* commands, numbers and labels in mono, like a drafting readout */
 
-[data-skin="workshop"] .section-title {
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  font-size: 10.5px;
-}
-/* the pencil: one yellow mark under the active workspace */
+  .measure input,
+  .measure label,
+  kbd,
+  .section-title,
+  .ws-strip .lbl {
+    font-family: "IBM Plex Mono", "SF Mono", Menlo, monospace;
+  }
 
-[data-skin="workshop"] .ws-switch button.on {
-  box-shadow: inset 0 -2px 0 #f2c230;
-}
+  .section-title {
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    font-size: 10.5px;
+  }
 
-[data-skin="workshop"] .brand-name {
-  font-weight: 750;
-  letter-spacing: -0.02em;
+  /* the pencil: one yellow mark under the active workspace */
+
+  .ws-switch button.on {
+    box-shadow: inset 0 -2px 0 #f2c230;
+  }
+
+  .brand-name {
+    font-weight: 750;
+    letter-spacing: -0.02em;
+  }
 }

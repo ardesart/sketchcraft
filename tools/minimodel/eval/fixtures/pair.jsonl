@@ -1,0 +1,9 @@
+# @a is a group named "a": a 1 m cube at the origin (x 0..1). @b is a group named "b": a 1 m cube at x 3..4. Both start at y 0..1, z 0..1.
+{"cmd":"begin_group","name":"a","as":"a"}
+{"cmd":"rect","from":[0,0,0],"to":[1,1,0],"as":"fa"}
+{"cmd":"pushpull","face":"@fa","distance":1}
+{"cmd":"end_group"}
+{"cmd":"begin_group","name":"b","as":"b"}
+{"cmd":"rect","from":[3,0,0],"to":[4,1,0],"as":"fb"}
+{"cmd":"pushpull","face":"@fb","distance":1}
+{"cmd":"end_group"}

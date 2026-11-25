@@ -36,6 +36,11 @@ impl Engine {
                 let pts: Vec<DVec3> = points.into_iter().map(v3).collect();
                 json!({"group": m.wall(&pts, thickness, height, closed)?})
             }
+            Command::RoomInfo { name } => m.room_info(&name)?,
+            Command::FloorplanBuild { plan } => {
+                let plan = crate::floorplan::parse(&Value::Object(plan))?;
+                m.floorplan_build(&plan)?
+            }
             Command::WallPull { face, by } => {
                 let p = m.wall_pull(face, by)?;
                 json!({"moved": p.moves.len(), "faces": p.faces, "instances": p.instances})

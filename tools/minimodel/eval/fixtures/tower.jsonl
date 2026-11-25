@@ -1,0 +1,5 @@
+# @tower is a group named "tower": a box 2 m by 2 m and 6 m tall at the origin (x 0..2, y 0..2, z 0..6). @top is its top face.
+{"cmd":"begin_group","name":"tower","as":"tower"}
+{"cmd":"rect","from":[0,0,0],"to":[2,2,0],"as":"f"}
+{"cmd":"pushpull","face":"@f","distance":6,"as":"top"}
+{"cmd":"end_group"}

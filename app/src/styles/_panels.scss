@@ -83,10 +83,10 @@
       color: var(--faint);
       cursor: default;
       line-height: 1.45;
-    }
 
-    &.empty:hover {
-      background: none;
+      &:hover {
+        background: none;
+      }
     }
   }
 }
@@ -103,16 +103,16 @@
   gap: 5px;
   font-size: $font-xs;
   color: var(--muted);
-}
 
-.tile-art {
-  @include grid-center;
-  width: 100%;
-  aspect-ratio: 1;
-  border-radius: 10px;
-  background: var(--bg);
-  color: var(--text);
-  transition: transform 0.12s ease, box-shadow 0.12s ease;
+  &-art {
+    @include grid-center;
+    width: 100%;
+    aspect-ratio: 1;
+    border-radius: 10px;
+    background: var(--bg);
+    color: var(--text);
+    transition: transform 0.12s ease, box-shadow 0.12s ease;
+  }
 }
 
 button.tile:hover .tile-art {
@@ -181,20 +181,22 @@ button.tile:hover .tile-art {
   }
 }
 
-.hint p {
-  margin: 0 0 8px;
-  color: var(--muted);
-  line-height: 1.5;
-}
+.hint {
+  p {
+    margin: 0 0 8px;
+    color: var(--muted);
+    line-height: 1.5;
+  }
 
-.hint b {
-  display: inline-grid;
-  place-items: center;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 4px;
-  border: 1px solid var(--line-strong);
-  border-radius: 5px;
-  font-size: $font-xs;
-  color: var(--text);
+  b {
+    display: inline-grid;
+    place-items: center;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 4px;
+    border: 1px solid var(--line-strong);
+    border-radius: 5px;
+    font-size: $font-xs;
+    color: var(--text);
+  }
 }

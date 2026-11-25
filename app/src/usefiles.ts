@@ -1,8 +1,10 @@
 // File actions: New, Open, Save, the imports and the exports. Each runs engine commands and
 // says what happened.
+import { stopWatching } from "./photocraft";
 import type { RefObject } from "react";
 import type { Reply, Scene } from "./engine";
-import { exec } from "./engine";
+import { exec, onMobileApp } from "./engine";
+import { confirm } from "./ask";
 import { isModelPath, pickOpen, pickSave } from "./files";
 import type { Sel } from "./selection";
 import { EMPTY } from "./selection";
@@ -35,6 +37,21 @@ function importedSkips(r: Reply): string {
   return Array.isArray(r.skipped_pictures) && r.skipped_pictures.length ? ` ${skippedText(r.skipped_pictures as string[])}` : "";
 }
 
+/** Android: the native picker greys out .skp (Android has no MIME type for it) and returns content:// URIs the
+ *  engine can't read from disk, so the phone picks through the web view instead, which gives the bytes and the real name. */
+function pickFileMobile(): Promise<File | null> {
+  return new Promise((resolve) => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.onchange = () => resolve(input.files?.[0] ?? null);
+    input.oncancel = () => resolve(null);
+    input.click();
+  });
+}
+
+/** what the phone can import from bytes (Open of a .sketchcraft and the scan/IFC imports still need a path) */
+const MOBILE_IMPORT = /\.(skp|fbx|dxf|obj)$/i;
+
 /** The model's name without its folder or extension (what a saved file is called after). */
 const modelBase = (file: string | null) => (file?.split("/").pop() ?? "model").replace(/\.sketchcraft$/, "");
 
@@ -49,6 +66,19 @@ export function useFileActions({ run, say, refresh, api, scene, figure, currentF
   setCurrentFile: (p: string | null) => void;
   setSel: (s: Sel) => void;
 }) {
+  /** Open a bundled example (templates.ts EXAMPLES) in place of the model; the one open is kept in Backups first. */
+  const openExample = async (name: string, data: string) => {
+    if ((scene?.faces.length ?? 0) > 0 && !(await confirm(`Open the ${name} example?`, "It takes the place of the model you have open. That one is kept: File › Restore from backup… brings it back.", "Open example"))) return;
+    stopWatching();
+    const r = await run({ cmd: "open", data });
+    if (!r.ok) return;
+    setCurrentFile(null);
+    setSel(EMPTY);
+    api.current?.fitSoon();
+    await refresh();
+    say(`Opened the ${name} example. File › Save As… keeps a copy of your own.`);
+  };
+
   const runTemplate = async (lines: string[]) => {
     for (const line of lines) {
       const r = await exec(JSON.parse(line));
@@ -143,14 +173,26 @@ export function useFileActions({ run, say, refresh, api, scene, figure, currentF
 
   const file = {
     new: async () => {
+      stopWatching();
       await run({ cmd: "new", figure: figureToday(figure) });
       setCurrentFile(null);
       setSel(EMPTY);
       say("New model. ⌘Z brings the last one back.");
     },
     open: async () => {
+      if (onMobileApp) {
+        const f = await pickFileMobile();
+        if (!f) return;
+        if (!MOBILE_IMPORT.test(f.name)) return say(`${f.name}: on the phone SketchCraft can open .skp, .fbx, .dxf and .obj files for now`, true);
+        await run({ cmd: "new" });
+        await importFile(f);
+        setCurrentFile(null);
+        setSel(EMPTY);
+        return;
+      }
       const path = await pickOpen();
       if (!path) return;
+      stopWatching();
       if (path.toLowerCase().endsWith(".sketchcraft")) {
         const r = await run({ cmd: "open", path });
         if (!r.ok) return;
@@ -178,10 +220,16 @@ export function useFileActions({ run, say, refresh, api, scene, figure, currentF
       }
     },
     import: async () => {
+      if (onMobileApp) {
+        const f = await pickFileMobile();
+        if (!f) return;
+        if (!MOBILE_IMPORT.test(f.name)) return say(`${f.name}: on the phone SketchCraft can import .skp, .fbx, .dxf and .obj files for now`, true);
+        return importFile(f);
+      }
       const path = await pickOpen();
       if (path) await importPath(path);
     },
-    export: async (kind: "obj" | "glb" | "fbx" | "stl" | "dae" | "dxf" | "dwg" | "pdf" | "ifc") => {
+    export: async (kind: "obj" | "glb" | "fbx" | "stl" | "3mf" | "dae" | "dxf" | "dwg" | "pdf" | "ifc") => {
       const base = modelBase(currentFile);
       const path = await pickSave(`${base}.${kind}`, kind, kind.toUpperCase());
       if (!path) return;
@@ -192,7 +240,10 @@ export function useFileActions({ run, say, refresh, api, scene, figure, currentF
             ? { cmd: "export_pdf", path, width: 2400, height: 1500, camera: api.current!.camera(), title: base }
             : { cmd: `export_${kind}`, path };
       const r = await run(cmd);
-      if (r.ok) say(`Exported ${path.split("/").pop()}`);
+      if (!r.ok) return;
+      // a 3MF that is not solid still opens in a slicer but prints badly: say so, and where to look
+      if (kind === "3mf" && r.solid === false) say(`Exported ${path.split("/").pop()}, but the model is not solid. Tools > Print check says what to fix.`, true);
+      else say(`Exported ${path.split("/").pop()}`);
     },
     section: async (kind: "svg" | "dxf") => {
       const plane = api.current?.sectionPlane();
@@ -234,5 +285,5 @@ export function useFileActions({ run, say, refresh, api, scene, figure, currentF
       if (r.ok) say(`Rendered ${path.split("/").pop()}`);
     },
   };
-  return { file, importFile, importPath, runTemplate };
+  return { file, importFile, importPath, runTemplate, openExample };
 }

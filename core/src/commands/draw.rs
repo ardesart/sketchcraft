@@ -5,6 +5,7 @@ use super::*;
 
 impl Engine {
     pub(super) fn run_draw(&mut self, cmd: Command) -> Result<Value> {
+        let untrusted = self.untrusted;
         let m: &mut Model = active_model!(self);
         Ok(match cmd {
             Command::New { figure } => {
@@ -46,13 +47,9 @@ impl Engine {
                 if points.len() < 2 {
                     bail!("a line needs 2 points");
                 }
-                let (mut edges, mut faces) = (vec![], vec![]);
-                for w in points.windows(2) {
-                    let r = m.draw_line(v3(w[0]), v3(w[1]))?;
-                    edges.extend(r.edges);
-                    faces.extend(r.faces);
-                }
-                json!({"edges": edges, "faces": faces, "face": faces.last()})
+                let pts: Vec<DVec3> = points.into_iter().map(v3).collect();
+                let r = m.draw_pieces(&pts, untrusted)?;
+                json!({"edges": r.edges, "faces": r.faces, "face": r.faces.last()})
             }
             Command::Circle { center, radius, normal, segments } => {
                 let f = m.circle(v3(center), v3(normal), radius, segments)?;
@@ -71,6 +68,30 @@ impl Engine {
                 }
                 m.curve_through(&pts, false);
                 json!({"edges": edges, "faces": faces, "face": faces.last()})
+            }
+            Command::Spline { points, closed, segments } => {
+                let pts = crate::curves::spline_points(&points.into_iter().map(v3).collect::<Vec<_>>(), closed, segments)?;
+                let r = m.draw_curve_for(&pts, closed, untrusted)?;
+                json!({"edges": r.edges, "faces": r.faces, "face": r.faces.last(), "curve": r.curve, "points": r.points})
+            }
+            Command::Bezier { points, closed, segments } => {
+                let pts = crate::curves::bezier_points(&points.into_iter().map(v3).collect::<Vec<_>>(), closed, segments)?;
+                let r = m.draw_curve_for(&pts, closed, untrusted)?;
+                json!({"edges": r.edges, "faces": r.faces, "face": r.faces.last(), "curve": r.curve, "points": r.points})
+            }
+            Command::MakeFaces { ids, open_holes } => {
+                let lines = m.make_faces_scope(&ids)?;
+                let r = m.make_faces(&lines, &crate::makefaces::MakeFacesOptions { open_holes })?;
+                let mut v = serde_json::to_value(&r)?;
+                v["unchanged"] = json!(r.created == 0 && r.split == 0);
+                v
+            }
+            Command::Flatten { ids, z } => {
+                let verts = m.flatten_scope(&ids)?;
+                let r = m.flatten(&verts, z)?;
+                let mut v = serde_json::to_value(&r)?;
+                v["unchanged"] = json!(r.changes() == 0);
+                v
             }
             Command::Offset { face, distance } => json!({"face": m.offset(face, distance)?}),
             Command::FollowMe { face, points, edges, around } => {
@@ -105,10 +126,11 @@ impl Engine {
                 };
                 json!({"moved": m.scale(&ids, v3(center), f)?})
             }
-            Command::Duplicate { ids, by } => json!({"ids": m.duplicate(&ids, v3(by))?}),
-            Command::Array { ids, by, count } => json!({"ids": m.array(&ids, v3(by), count)?}),
+            // an agent's or a plugin's copying is stopped (and put back) if it takes longer than `UNTRUSTED_COPY_SECONDS`; the person's is not
+            Command::Duplicate { ids, by } => json!({"ids": m.with_deadline(untrusted.then_some(UNTRUSTED_COPY_SECONDS), |m| m.duplicate(&ids, v3(by)))?}),
+            Command::Array { ids, by, count } => json!({"ids": m.with_deadline(untrusted.then_some(UNTRUSTED_COPY_SECONDS), |m| m.array(&ids, v3(by), count))?}),
             Command::Delete { ids } => {
-                m.delete(&ids)?;
+                m.with_deadline(untrusted.then_some(UNTRUSTED_COPY_SECONDS), |m| m.delete(&ids))?;
                 json!({})
             }
             Command::Reverse { ids } => {

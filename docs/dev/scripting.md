@@ -53,7 +53,7 @@ townhouse, a row of houses, a retail center and the asset lineup.
 | Notes and views | `dimension`, `text`, `guide`, `clear_guides`, `save_view`, `show_view`, `delete_view`, `section`, `section_plane`, `section_off`, `set_axes` |
 | Terrain and site | `terrain_from_contours`, `terrain_grid`, `smoove`, `stamp`, `drape`, `flip_edge`, `add_location`, `environment`, `sun` |
 | Photos and scans | `match_photo`, `photo_solve`, `project_photo`, `import_cloud`, `cloud`, `cloud_data` |
-| Inspect | `info`, `faces`, `pick`, `parts`, `volume`, `report`, `classify`, `units` |
+| Inspect | `info`, `faces`, `pick`, `parts`, `parts_layout`, `volume`, `report`, `classify`, `units` |
 | Pictures and video | `render`, `photoreal`, `animate`, `timeline`, `timeline_frames`, `export_sheets` (a PDF of the saved sheets), `blueprint` |
 | Drawing sheets (saved in the model) | `sheets` (makes sheets from a page description), `sheet_add`, `sheet_edit`, `sheet_delete`, `viewport_add`, `viewport_edit`, `sheet_item_delete`, `sheet_dim` (two anchors, or more for a chain), `sheet_reattach`, `sheet_line`, `sheet_trim`, `sheet_extend`, `sheet_offset`, `sheets_info`, `viewport_points`, `dimension_auto`, `layout_preset`, `sheet_render` (a sheet as a PNG) |
 | Files | `new` (optionally with a `figure`), `save`, `open`, `import_skp`, `import_dxf`, `import_dwg`, `import_ifc`, `import_fbx`, `import_obj`, `export_glb`, `export_fbx`, `export_obj`, `export_stl`, `export_dae`, `export_dxf`, `export_dwg`, `export_ifc`, `export_pdf`, `raise_walls` |

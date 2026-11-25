@@ -136,13 +136,23 @@ still busy are skipped, so keep `move` quick. The built-in
 
 `ctx.run` takes the same commands as the CLI and the MCP server: draw, push/pull,
 move, paint, group, place components and more (see the README's command
-reference). Changes a plugin makes can be undone like any other. Two read-only
+reference). Changes a plugin makes can be undone like any other. Three read-only
 commands are handy for plugins:
 
 - `{"cmd": "parts", "ids": [...]}`: each group's or component's name, material
   and `size` as `[length, width, thickness]` in meters, measured along its own
   faces (so a turned board reads right). No ids: every group with nothing
-  grouped inside it, and every component.
+  grouped inside it, and every component. Each part also says where it is and
+  which way it lies: `origin` (a corner of its box), `axes` (`u` along its
+  length, `w` its width, `n` its thickness, in model space) and `extent` (how
+  far it reaches along each). The part fills `origin + a·u + b·w + c·n`.
+- `{"cmd": "parts_layout", "ids": [...], "gap": 0.05}`: where each part would
+  lie if the model were taken apart and laid flat on the ground: on its biggest
+  face, length along red, longest first, parts of the same size and material
+  next to each other. Each part comes with a `transform` (16 numbers, a 4 × 4
+  matrix by columns: a turn and a move from where the part is to where it
+  lies) and the `min` and `max` corners of its box there. Nothing in the model
+  moves. `gap` is optional (4% of the longest part, 5 to 100 mm).
 - `{"cmd": "info"}`: counts, groups and materials.
 
 ## What plugins can't do

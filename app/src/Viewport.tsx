@@ -1,6 +1,8 @@
+import { descendants } from "./grouptree";
 import { translate, useLocale } from "./locale";
 import { TEXTURING_SET } from "./texturing-set";
 import { fixtureOf, wallSnap } from "./fixtures";
+import { innermostPart, laidOutParts } from "./laidoutbar";
 // The 3D view. Draws the engine's scene with three.js and turns mouse and
 // keyboard input into engine commands. Z is up, units are meters.
 import { useEffect, useRef, useState } from "react";
@@ -8,6 +10,7 @@ import { ask, confirm } from "./ask";
 import { AxisGizmo } from "./gizmo";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { TouchGestures, touchMapping } from "./touch";
 import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { GTAOPass } from "three/examples/jsm/postprocessing/GTAOPass.js";
@@ -30,10 +33,12 @@ import { combine, EMPTY, selIds, selMode, toggle, type Sel } from "./selection";
 import { formatLength, parseLengths } from "./units";
 import { autoTagColor, ACCENT, BACKGROUNDS, skyDome } from "./viewport/colors";
 import { FrameWatch } from "./viewport/framewatch";
+import { FIT_RADIUS_FLOOR, MAX_PERSPECTIVE_NEAR, fitDistance, fitRadius, perspectiveNear } from "./viewport/fit";
 import { styledEdges, averagedNormals, smoothNormals } from "./viewport/edges";
 import { adoptPainted, checkerTexture, forgetPainted, profileMaterial, textureFor } from "./viewport/materials";
 import { DEFAULT_TPAINT, decodePixels, Painter, sampleRgba, stroke3DCommand, trisOf, uvAt } from "./texturepaint";
 import { UP, r4, arr, circleThrough, bulgeThrough, basis, arcPoints, offsetOutline } from "./viewport/geometry";
+import { DEFAULT_SPLINE_SEGMENTS, segmentCount, splinePoints } from "./curvemath";
 import { selectMarquee } from "./viewport/marquee";
 import { contextEventAction, isMenuKey, isRightClick } from "./viewport/rightclick";
 import { isMac, isTypingTarget } from "./keymap";
@@ -170,7 +175,7 @@ export default function Viewport(props: Props) {
     fitted: boolean;
     fitNext: boolean;
     section: THREE.Plane | null;
-    segs: { circle: number; polygon: number };
+    segs: { circle: number; polygon: number; spline: number };
     rightDown: { x: number; y: number; t: number; held: boolean } | null;
     /** when our context menu last opened, and when a right-drag pan last ended (performance.now) */
     menuAt: number;
@@ -180,7 +185,7 @@ export default function Viewport(props: Props) {
     labels: LabelSpec[];
     liveLabels: LabelSpec[];
     labelEls: Map<string, HTMLDivElement>;
-  }>({ press: null, labels: [], liveLabels: [], labelEls: new Map(), op: null, last: null, lock: null, hover: null, hoverEdge: null, wall: null, rooms: [], cutaway: null, snap: null, shiftLock: false, zoomY: null, space: false, spaceUsed: false, fitted: false, fitNext: false, section: null, segs: { circle: 24, polygon: 6 }, rightDown: null, menuAt: -1e9, panAt: -1e9, selOverride: null });
+  }>({ press: null, labels: [], liveLabels: [], labelEls: new Map(), op: null, last: null, lock: null, hover: null, hoverEdge: null, wall: null, rooms: [], cutaway: null, snap: null, shiftLock: false, zoomY: null, space: false, spaceUsed: false, fitted: false, fitNext: false, section: null, segs: { circle: 24, polygon: 6, spline: DEFAULT_SPLINE_SEGMENTS }, rightDown: null, menuAt: -1e9, panAt: -1e9, selOverride: null });
 
   /** render on demand: decides each animation frame whether the view needs drawing */
   const frameWatch = useRef<FrameWatch | null>(null);
@@ -202,7 +207,7 @@ export default function Viewport(props: Props) {
     const frames = frameWatch.current!;
     renderer.domElement.addEventListener("webglcontextrestored", () => frames.invalidate());
 
-    const persp = new THREE.PerspectiveCamera(40, 1, 0.05, 20000);
+    const persp = new THREE.PerspectiveCamera(40, 1, MAX_PERSPECTIVE_NEAR, 20000);
     persp.up.set(0, 0, 1);
     persp.position.set(30, -40, 28);
     const ortho = new THREE.OrthographicCamera(-10, 10, 10, -10, -10000, 10000);
@@ -212,6 +217,7 @@ export default function Viewport(props: Props) {
     controls.dampingFactor = 0.14;
     controls.screenSpacePanning = true;
     controls.zoomToCursor = true;
+    controls.minDistance = FIT_RADIUS_FLOOR;
     controls.enableZoom = false; // our own wheel handler: trackpads orbit, pinch zooms
 
     // Trackpad: two-finger swipe orbits, Shift+swipe pans, pinch zooms toward the cursor.
@@ -253,13 +259,14 @@ export default function Viewport(props: Props) {
           T.ortho.zoom = THREE.MathUtils.clamp(T.ortho.zoom / f, 0.02, 200);
           T.ortho.updateProjectionMatrix();
         } else {
-          const minR = 0.3;
+          const minR = FIT_RADIUS_FLOOR;
           if (f < 1 && cam.position.distanceTo(target) * f < minR) return;
           cam.position.sub(focus).multiplyScalar(f).add(focus);
           target.sub(focus).multiplyScalar(f).add(focus);
         }
       }
       if (cam === T.ortho) T.persp.position.copy(cam.position);
+      syncPerspectiveNear(T.camera.position.distanceTo(T.controls.target));
     };
     renderer.domElement.addEventListener("wheel", wheel, { passive: false });
     // moving the camera leaves a matched photo's view (as in SketchUp)
@@ -308,6 +315,8 @@ export default function Viewport(props: Props) {
     world.add(model, overlay, preview, cage, cloudGroup.current);
 
     t.current = { renderer, persp, ortho, camera: persp, controls, world, sun, model, overlay, preview, cage, ground, sky, catcher, pickMesh: null, editMesh: null, groundZ: 0 };
+    const syncControlsNear = () => syncPerspectiveNear(t.current!.camera.position.distanceTo(controls.target));
+    controls.addEventListener("change", syncControlsNear);
 
     const resize = () => {
       const { clientWidth: w, clientHeight: h } = el;
@@ -371,6 +380,7 @@ export default function Viewport(props: Props) {
     return () => {
       cancelAnimationFrame(raf);
       ro.disconnect();
+      controls.removeEventListener("change", syncControlsNear);
       controls.dispose();
       renderer.dispose();
       el.removeChild(renderer.domElement);
@@ -390,7 +400,7 @@ export default function Viewport(props: Props) {
       T.ortho.zoom = 1;
     }
     const dist = T.ortho.position.distanceTo(T.controls.target);
-    const h = Math.max(dist, 1) * Math.tan(THREE.MathUtils.degToRad(T.persp.fov / 2));
+    const h = Math.max(dist, FIT_RADIUS_FLOOR) * Math.tan(THREE.MathUtils.degToRad(T.persp.fov / 2));
     T.ortho.left = -h * aspect;
     T.ortho.right = h * aspect;
     T.ortho.top = h;
@@ -742,13 +752,7 @@ export default function Viewport(props: Props) {
     // Hide Rest of Model: while a group or component is open, only it shows
     if (live.current.styles.hideRest && (s.activeGroup != null || s.editing != null)) {
       const inside = new Set<number>();
-      if (s.activeGroup != null) {
-        inside.add(s.activeGroup);
-        for (let grew = true; grew; ) {
-          grew = false;
-          for (const g of s.groups) if (g.parent != null && inside.has(g.parent) && !inside.has(g.id)) (inside.add(g.id), (grew = true));
-        }
-      }
+      if (s.activeGroup != null) for (const g of descendants(s.groups, [s.activeGroup])) inside.add(g);
       const faceIn = new Set(s.faces.filter((f) => f.group != null && inside.has(f.group)).map((f) => f.id));
       const instIn = new Set(s.instances.filter((i) => i.id === s.editing || (i.parent != null && inside.has(i.parent))).map((i) => i.id));
       positions = positions === s.positions ? s.positions.slice() : positions;
@@ -1125,6 +1129,7 @@ export default function Viewport(props: Props) {
       MIDDLE: THREE.MOUSE.ROTATE,
       RIGHT: THREE.MOUSE.PAN,
     };
+    T.controls.touches = touchMapping(live.current.tool, THREE.TOUCH) as typeof T.controls.touches;
   }
 
   // ---------------------------------------------------------------- helpers
@@ -1331,13 +1336,7 @@ export default function Viewport(props: Props) {
   // ---- the hierarchy: groups inside groups --------------------------------
   /** A group and everything nested in it. */
   function subtree(g: number): Set<number> {
-    const s = sceneNow();
-    const out = new Set([g]);
-    for (let grew = true; grew; ) {
-      grew = false;
-      for (const x of s.groups) if (x.parent != null && out.has(x.parent) && !out.has(x.id)) (out.add(x.id), (grew = true));
-    }
-    return out;
+    return descendants(sceneNow().groups, [g]);
   }
   /** What a click on something in group `g` selects: the group one level
    *  inside the one that's open (the top group when none is), or nothing
@@ -1348,6 +1347,10 @@ export default function Viewport(props: Props) {
     const parentOf = new Map(s.groups.map((x) => [x.id, x.parent]));
     const chain: number[] = [];
     for (let c: number | null | undefined = g; c != null && chain.length < 256; c = parentOf.get(c)) chain.push(c);
+    // laid out, the click takes the part itself, not a group around it
+    const parts = laidOutParts(s.laid_out);
+    const part = parts && innermostPart(chain, parts);
+    if (part != null) return part;
     if (s.activeGroup == null) return chain[chain.length - 1];
     const i = chain.indexOf(s.activeGroup);
     if (i === 0) return null;
@@ -1358,8 +1361,9 @@ export default function Viewport(props: Props) {
     const tree = subtree(g);
     const s = sceneNow();
     const out = new Set(s.faces.filter((f) => f.group != null && tree.has(f.group)).map((f) => f.id));
-    // components placed inside it light up with it
-    for (const i of s.instances) if (i.parent != null && tree.has(i.parent)) out.add(i.id);
+    // components placed inside it light up with it (laid out, a component is a part of its own, lying elsewhere)
+    const parts = laidOutParts(s.laid_out);
+    for (const i of s.instances) if (i.parent != null && tree.has(i.parent) && !parts?.has(i.id)) out.add(i.id);
     return out;
   }
 
@@ -1474,7 +1478,7 @@ export default function Viewport(props: Props) {
   function updateCoach() {
     const L = live.current;
     const op = st.current.op;
-    const stage = op?.t === "axes" ? (op.x ? 2 : 1) : op?.t === "arc" ? (op.b ? 2 : 1) : op?.t === "carc" ? (op.a ? 2 : 1) : op?.t === "arc3" ? (op.m ? 2 : 1) : op?.t === "rrect" ? (op.b ? 2 : 1) : op?.t === "rotate" ? (op.ref ? 2 : 1) : op?.t === "dim" ? (op.b ? 2 : 1) : undefined;
+    const stage = op?.t === "axes" ? (op.x ? 2 : 1) : op?.t === "arc" ? (op.b ? 2 : 1) : op?.t === "carc" ? (op.a ? 2 : 1) : op?.t === "arc3" ? (op.m ? 2 : 1) : op?.t === "rrect" ? (op.b ? 2 : 1) : op?.t === "rotate" ? (op.ref ? 2 : 1) : op?.t === "dim" ? (op.b ? 2 : 1) : op?.t === "spline" ? op.pts.length : undefined;
     const g =
       L.tool === "plugin" && L.pluginTool
         ? { title: L.pluginTool.name, step: L.pluginTool.hint || "Click in the model.", keys: [["Esc", "leave the tool"]] as [string, string][] }
@@ -1526,6 +1530,7 @@ export default function Viewport(props: Props) {
   /** What hovering this owner would select (a whole group, unless it's open). */
   function hoverOwners(owner: number): Set<number> {
     const inst = sceneNow().instances.find((i) => i.id === owner);
+    if (inst && laidOutParts(sceneNow().laid_out)?.has(inst.id)) return new Set([owner]);
     const g = selectableGroup(inst ? inst.parent : groupOfFace(owner));
     if (g != null) return groupFaces(g);
     return new Set([owner]);
@@ -1536,6 +1541,8 @@ export default function Viewport(props: Props) {
     const s = sceneNow();
     const inst = !p.face ? s.instances.find((i) => i.id === p.owner) : undefined;
     if (inst) {
+      // laid out, a component is a part of its own: the click takes it
+      if (laidOutParts(s.laid_out)?.has(inst.id)) return { kind: "instances", id: p.owner };
       // a component inside a closed group: the click takes the group
       const g = selectableGroup(inst.parent);
       return g != null ? { kind: "groups", id: g } : { kind: "instances", id: p.owner };
@@ -1595,8 +1602,9 @@ export default function Viewport(props: Props) {
     } else {
       const target = T.controls.target;
       const off = T.camera.position.clone().sub(target).multiplyScalar(f);
-      if (off.length() < 0.3) return;
+      if (off.length() < FIT_RADIUS_FLOOR) return;
       T.camera.position.copy(target).add(off);
+      syncPerspectiveNear();
     }
     T.controls.update();
   }
@@ -1615,6 +1623,7 @@ export default function Viewport(props: Props) {
   function showSnap(sn: Snap) {
     st.current.snap = sn;
     if (sn.from) t.current!.preview.add(polyline([sn.from, sn.p], sn.axis != null ? AXIS_COLORS[sn.axis] : 0x8a8ea0, false, true));
+    if (sn.from2) t.current!.preview.add(polyline([sn.from2, sn.p], sn.axis2 != null ? AXIS_COLORS[sn.axis2] : 0x8a8ea0, false, true));
     const r = rect();
     const q = sn.p.clone().project(t.current!.camera);
     setHint({ x: (q.x * 0.5 + 0.5) * r.width, y: (-q.y * 0.5 + 0.5) * r.height, label: sn.label, kind: sn.kind });
@@ -1679,10 +1688,12 @@ export default function Viewport(props: Props) {
     const T = t.current;
     if (!T) return;
     const c = b.getCenter(new THREE.Vector3());
-    const rad = Math.max(b.getSize(new THREE.Vector3()).length() / 2, 1.5);
+    const rad = fitRadius(b.getSize(new THREE.Vector3()));
+    const dist = fitDistance(rad, T.persp.fov);
     const dir = T.camera.position.clone().sub(T.controls.target).normalize();
     T.controls.target.copy(c);
-    T.persp.position.copy(c.clone().addScaledVector(dir, (rad / Math.sin(THREE.MathUtils.degToRad(T.persp.fov / 2))) * 1.05));
+    T.persp.position.copy(c.clone().addScaledVector(dir, dist));
+    syncPerspectiveNear(dist);
     if (T.camera === T.ortho) syncOrtho(true);
   }
 
@@ -1694,6 +1705,10 @@ export default function Viewport(props: Props) {
     const dist = T.camera.position.distanceTo(T.controls.target);
     T.persp.position.copy(T.controls.target.clone().addScaledVector(d, dist));
     T.persp.lookAt(T.controls.target);
+    if (T.camera === T.ortho) {
+      T.ortho.position.copy(T.persp.position);
+      T.ortho.quaternion.copy(T.persp.quaternion);
+    }
     fit();
   }
 
@@ -1739,6 +1754,15 @@ export default function Viewport(props: Props) {
     T.persp.updateProjectionMatrix();
   }
 
+  function syncPerspectiveNear(distance?: number) {
+    const T = t.current;
+    if (!T) return;
+    const near = perspectiveNear(distance ?? T.persp.position.distanceTo(T.controls.target));
+    if (Math.abs(T.persp.near - near) < 1e-9) return;
+    T.persp.near = near;
+    T.persp.updateProjectionMatrix();
+  }
+
   function goTo(c: Cam & { photo?: string }) {
     const T = t.current!;
     showBackdrop(c.photo ?? null);
@@ -1751,6 +1775,7 @@ export default function Viewport(props: Props) {
       const ease = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
       T.camera.position.lerpVectors(from.e, to.e, ease);
       T.controls.target.lerpVectors(from.t, to.t, ease);
+      syncPerspectiveNear(T.camera.position.distanceTo(T.controls.target));
       if (T.camera === T.ortho) {
         T.persp.position.copy(T.camera.position);
         T.ortho.lookAt(T.controls.target);
@@ -1795,6 +1820,7 @@ export default function Viewport(props: Props) {
     setFov(c.fov || 40);
     T.camera.position.set(...c.eye);
     T.controls.target.set(...c.target);
+    syncPerspectiveNear(T.camera.position.distanceTo(T.controls.target));
     if (T.camera === T.ortho) {
       T.persp.position.copy(T.camera.position);
       syncOrtho(false);
@@ -1962,6 +1988,16 @@ export default function Viewport(props: Props) {
     const lens = parseLengths(s, units);
     const L = live.current;
 
+    // Curve: how many pieces between two clicked points ("24" or "24s")
+    if (L.tool === "spline") {
+      const m = /^(\d+)\s*s?$/i.exec(s);
+      const k = m ? segmentCount(Number(m[1])) : null;
+      if (k) {
+        st.current.segs.spline = k;
+        L.onToast(translate(localeRef.current, "spline.pieces").replace("{n}", String(k)));
+      }
+      return;
+    }
     // "24s": sides for circles and polygons
     const sides = /^(\d+)\s*s$/i.exec(s);
     if (sides) {
@@ -2524,6 +2560,26 @@ export default function Viewport(props: Props) {
     await run({ cmd: "wall", points: op.pts.map(arr), thickness: b.wallThickness, height: b.wallHeight, closed });
   }
 
+  /** Curve: send the clicked points to the engine's `spline` command (one undo step). */
+  async function commitSpline(closed: boolean) {
+    const op = st.current.op;
+    if (op?.t !== "spline") return;
+    st.current.op = null;
+    st.current.lock = null;
+    clearPreview();
+    live.current.onMeasure("", "");
+    if (op.pts.length < 2 || (closed && op.pts.length < 3)) return;
+    await run({ cmd: "spline", points: op.pts.map(arr), closed, segments: st.current.segs.spline });
+  }
+
+  /** Is the pointer on the first point of the curve in progress (so a click there closes it)? */
+  function nearSplineStart(e: { clientX: number; clientY: number }, op: Extract<Op, { t: "spline" }>) {
+    if (op.pts.length < 3) return false;
+    const r = rect();
+    const q = toScreen2(op.pts[0]);
+    return Math.hypot(q.x - (e.clientX - r.left), q.y - (e.clientY - r.top)) < 12;
+  }
+
   async function commitTape(p: THREE.Vector3) {
     const op = st.current.op;
     if (op?.t !== "tape") return;
@@ -2557,6 +2613,9 @@ export default function Viewport(props: Props) {
   useEffect(() => {
     const T = t.current!;
     const el = T.renderer.domElement;
+    // touch: which events belong to a two-finger camera gesture (see touchDown below)
+    const gestures = new TouchGestures();
+    const gestureEvents = new WeakSet<Event>();
 
     const moveBox = ({ e, E, op }: MoveArgs<"box">) => {
       op.x1 = e.clientX;
@@ -2606,6 +2665,22 @@ export default function Viewport(props: Props) {
       else showSnap(sn);
       setLive([{ p: last.clone().add(sn.p).multiplyScalar(0.5), text: fmt(sn.p.distanceTo(last)) }]);
       L.onMeasure("Length", fmt(sn.p.distanceTo(last)));
+      return;
+    };
+    const moveSpline = ({ e, L, E, op, lock }: MoveArgs<"spline">) => {
+      const last = op.pts[op.pts.length - 1];
+      const sn = infer(E, e, { anchor: last, lock, plane: { origin: op.pts[0], normal: op.n } });
+      const closing = nearSplineStart(e, op);
+      op.cur = closing ? op.pts[0].clone() : sn.p;
+      const through = closing ? op.pts : [...op.pts, op.cur];
+      const v = (p: [number, number, number]) => new THREE.Vector3(p[0], p[1], p[2]);
+      const triples = through.map((p) => [p.x, p.y, p.z] as [number, number, number]);
+      // what the engine will draw, and the points it goes through
+      T.preview.add(polyline(splinePoints(triples, closing, st.current.segs.spline).map(v), ACCENT));
+      if (through.length > 1) T.preview.add(polyline(through, 0x8a8ea0, false, true));
+      if (closing) setHint({ ...toScreen2(op.pts[0]), label: translate(localeRef.current, "spline.close"), kind: "endpoint" });
+      else showSnap(sn);
+      L.onMeasure(translate(localeRef.current, "spline.measure"), `${through.length} · ${st.current.segs.spline}`);
       return;
     };
     const moveStairs = ({ e, L, E, op, lock }: MoveArgs<"stairs">) => {
@@ -3002,6 +3077,7 @@ export default function Viewport(props: Props) {
       }
     };
     const move = (e: PointerEvent) => {
+      if (gestureEvents.has(e)) return;
       lastPointer.current = { x: e.clientX, y: e.clientY };
       if (st.current.rightDown) st.current.rightDown.held = (e.buttons & 2) !== 0;
       // camera tools
@@ -3069,6 +3145,8 @@ export default function Viewport(props: Props) {
           return moveDim({ e, L: L as Live, E, op, lock });
         case "wall":
           return moveWall({ e, L: L as Live, E, op, lock });
+        case "spline":
+          return moveSpline({ e, L: L as Live, E, op, lock });
         case "stairs":
           return moveStairs({ e, L: L as Live, E, op, lock });
         case "text":
@@ -3106,7 +3184,7 @@ export default function Viewport(props: Props) {
       }
 
       // nothing in progress: show what a click would hit
-      if (["axes", "line", "freehand", "arc", "arccenter", "arc3", "pie", "rect", "rrect", "circle", "polygon", "tape", "dimension", "text", "move", "rotate", "scale", "place", "wall", "stairs", "column", "protractor"].includes(L.tool)) {
+      if (["axes", "line", "freehand", "spline", "arc", "arccenter", "arc3", "pie", "rect", "rrect", "circle", "polygon", "tape", "dimension", "text", "move", "rotate", "scale", "place", "wall", "stairs", "column", "protractor"].includes(L.tool)) {
         const sn = infer(E, e, {});
         showSnap(sn);
         // placing a fixture near a wall: say it will sit against it
@@ -3452,6 +3530,21 @@ export default function Viewport(props: Props) {
       st.current.op = { t: "wall", pts: [sn.p], cur: sn.p };
       return;
     };
+    const downSpline = async ({ e, E, op }: DownArgs) => {
+      if (op?.t === "spline") {
+        // a click on the first point closes the curve; a double-click ends it where it is
+        if (nearSplineStart(e, op)) return void (await commitSpline(true));
+        if (clicks.current >= 2) return void (await commitSpline(false));
+        const last = op.pts[op.pts.length - 1];
+        const sn = infer(E, e, { anchor: last, lock: st.current.lock, plane: { origin: op.pts[0], normal: op.n } });
+        if (sn.p.distanceTo(last) > 1e-4) op.pts.push(sn.p);
+        st.current.lock = null;
+        return;
+      }
+      const sn = infer(E, e, {});
+      st.current.op = { t: "spline", pts: [sn.p], n: sn.face ? V(sn.face.normal) : UP.clone(), cur: sn.p };
+      return;
+    };
     const downStairs = async ({ e, L, E, op }: DownArgs) => {
       if (op?.t === "stairs") {
         const d = op.cur.clone().sub(op.at);
@@ -3649,6 +3742,10 @@ export default function Viewport(props: Props) {
     };
 
     const down = async (e: PointerEvent) => {
+      if (gestureEvents.has(e)) return;
+      // a finger has no hover: it lands where it clicks, so the tools first see it arrive there (as a mouse would
+      // have moved there), then the press. Without this a rectangle's second tap used the first tap's place.
+      if (e.pointerType === "touch") move(e);
       const L = live.current;
       // PointerEvent.detail is 0 in Chromium (and WebView2), so count clicks here: the same place, quickly
       const now = e.timeStamp;
@@ -3756,6 +3853,8 @@ export default function Viewport(props: Props) {
           return downText({ e, L: L as Live, E, op, sel });
         case "wall":
           return downWall({ e, L: L as Live, E, op, sel });
+        case "spline":
+          return downSpline({ e, L: L as Live, E, op, sel });
         case "stairs":
           return downStairs({ e, L: L as Live, E, op, sel });
         case "roof":
@@ -3786,6 +3885,7 @@ export default function Viewport(props: Props) {
     };
 
     const up = async (e: PointerEvent) => {
+      if (gestureEvents.has(e)) return;
       const L = live.current;
       {
         const c = camTool.current;
@@ -3987,6 +4087,11 @@ export default function Viewport(props: Props) {
         if (e.key === "Enter") return exitCage();
         if (!e.metaKey && !e.ctrlKey && ed.key(e)) return;
       }
+      if (e.key === "Enter" && st.current.op?.t === "spline") {
+        e.preventDefault();
+        void commitSpline(false);
+        return;
+      }
       if (e.key === "Enter" && st.current.op?.t === "wall") {
         e.preventDefault();
         void commitWall(false);
@@ -4012,10 +4117,28 @@ export default function Viewport(props: Props) {
     const padCancel = (e: PointerEvent) => {
       if (e.button === 2 || st.current.rightDown) finishRight(e);
     };
+    // Touch: a second finger makes a camera gesture (TouchGestures). These run first (capture) and mark the
+    // gesture's events, which the tool's handlers skip; OrbitControls, on the same canvas, still gets them.
+    // Pinch zoom is OrbitControls' while a finger is down; the mouse wheel keeps our own handler above.
+    const touchDown = (e: PointerEvent) => {
+      t.current!.controls.enableZoom = e.pointerType === "touch";
+      if (gestures.down(e, st.current.op != null) === "gesture-start" && gestures.cancelsOperation()) cancel();
+      if (gestures.ignore(e)) gestureEvents.add(e);
+    };
+    const touchMove = (e: PointerEvent) => { if (gestures.ignore(e)) gestureEvents.add(e); };
+    const touchUp = (e: PointerEvent) => {
+      if (gestures.ignore(e)) gestureEvents.add(e);
+      gestures.up(e);
+      if (e.pointerType === "touch" && !gestures.touching()) t.current!.controls.enableZoom = false;
+    };
     const leave = () => {
       setHint(null);
       if (badge.current) badge.current.style.opacity = "0";
     };
+    el.addEventListener("pointerdown", touchDown, true);
+    el.addEventListener("pointermove", touchMove, true);
+    el.addEventListener("pointerup", touchUp, true);
+    el.addEventListener("pointercancel", touchUp, true);
     el.addEventListener("pointermove", move);
     el.addEventListener("pointerdown", down);
     el.addEventListener("pointerup", up);
@@ -4025,6 +4148,10 @@ export default function Viewport(props: Props) {
     window.addEventListener("keydown", key);
     window.addEventListener("keyup", key);
     return () => {
+      el.removeEventListener("pointerdown", touchDown, true);
+      el.removeEventListener("pointermove", touchMove, true);
+      el.removeEventListener("pointerup", touchUp, true);
+      el.removeEventListener("pointercancel", touchUp, true);
       el.removeEventListener("pointermove", move);
       el.removeEventListener("pointerdown", down);
       el.removeEventListener("pointerup", up);

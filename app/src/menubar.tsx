@@ -6,6 +6,8 @@
 //     previous menu), Enter/Space runs the item, Esc closes; Home/End jump to the first and last item
 //   - F10 focuses the menu bar (so does tapping Alt on Windows and Linux; on a Mac Option is the copy key, so not there)
 // The roles are menubar > menuitem (with a menu) > menuitem / menuitemcheckbox / menuitemradio.
+// Where the eight names don't fit beside the top bar's buttons (a phone, a tablet upright, a narrow window) they fold
+// into one Menu whose items are the eight menus, each a submenu.
 
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { isMac, isTypingTarget } from "./keymap";
@@ -27,7 +29,23 @@ export interface PluginEntry {
 const ITEMS = "[role^='menuitem']:not([disabled])";
 const unfocus = () => (document.activeElement as HTMLElement | null)?.blur?.();
 
-export function MenuBar({ menus, actions, plugins, onOpenPlugins }: {
+/** narrower than this, the names would run under the buttons on the right of the top bar */
+export const COMPACT_MENUS = "(max-width: 1023px)";
+
+function useMatches(query: string) {
+  const [on, setOn] = useState(() => typeof window !== "undefined" && !!window.matchMedia?.(query).matches);
+  useEffect(() => {
+    const m = window.matchMedia?.(query);
+    if (!m) return;
+    const change = () => setOn(m.matches);
+    change();
+    m.addEventListener("change", change);
+    return () => m.removeEventListener("change", change);
+  }, [query]);
+  return on;
+}
+
+export function MenuBar({ menus: all, actions, plugins, onOpenPlugins }: {
   menus: Menu[];
   actions: Record<string, MenuAction>;
   plugins: PluginEntry[];
@@ -36,6 +54,8 @@ export function MenuBar({ menus, actions, plugins, onOpenPlugins }: {
 }) {
   const { t } = useLocale();
   useKeymap();
+  const compact = useMatches(COMPACT_MENUS);
+  const menus: Menu[] = compact ? [{ id: "all", label: "menu.all", items: all.map((m): MenuItem => ({ label: m.label, items: m.items })) }] : all;
   const [open, setOpen] = useState<number | null>(null);
   const bar = useRef<HTMLDivElement>(null);
   /** focus the first or last item once the menu that was just opened is on screen */
@@ -44,7 +64,7 @@ export function MenuBar({ menus, actions, plugins, onOpenPlugins }: {
   const focusTop = (i: number) => tops()[(i + menus.length) % menus.length]?.focus();
   const close = () => setOpen(null);
   const openMenu = (i: number, focus: "first" | "last" | null = null) => {
-    if (menus[i].id === "file") onOpenPlugins();
+    if (menus[i].id === "file" || menus[i].id === "all") onOpenPlugins();
     setOpen(i);
     setFocusIn(focus);
   };
@@ -131,8 +151,11 @@ export function MenuBar({ menus, actions, plugins, onOpenPlugins }: {
     }
   };
 
+  // the bar changed shape while a menu was open: that menu is gone
+  useEffect(() => setOpen(null), [compact]);
+
   return (
-    <nav className="menubar-wrap" aria-label="Menu bar">
+    <nav className={`menubar-wrap ${compact ? "compact" : ""}`} aria-label="Menu bar">
       {open !== null && <div className="menu-scrim" onPointerDown={close} />}
       <div className="menubar" role="menubar" ref={bar} onKeyDown={onKeyDown}>
         {menus.map((m, i) => (
@@ -149,6 +172,7 @@ export function MenuBar({ menus, actions, plugins, onOpenPlugins }: {
               onClick={() => (open === i ? close() : openMenu(i))}
               onPointerEnter={(e) => e.pointerType === "mouse" && open !== null && open !== i && openMenu(i)}
             >
+              {m.id === "all" && <span className="menu-burger" aria-hidden="true" />}
               {t(m.label)}
             </button>
             {open === i && (

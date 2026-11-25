@@ -2,7 +2,7 @@
   "name": "Cut list",
   "version": "1.0.0",
   "author": "SketchCraft",
-  "description": "Lists the boards and sheet parts to cut, and how many 4×8 sheets and 8-foot boards to buy.",
+  "description": "Lists the boards and sheet parts to cut (2×4s and other dimensional lumber by name, with board feet), and how many 4×8 sheets and 8-foot boards to buy.",
   "commands": [
     {
       "id": "cut-list",

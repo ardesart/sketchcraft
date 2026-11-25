@@ -36,7 +36,9 @@ pub fn cache_dir(name: &str) -> PathBuf {
             None::<PathBuf>
         }
     };
-    let Some(base) = base else { return std::env::temp_dir().join(format!("sketchcraft-{name}")) };
+    let Some(base) = base else {
+        return std::env::temp_dir().join(format!("sketchcraft-{name}"));
+    };
     let dir = base.join(name);
     // make it private; if something odd (a symlink) is in the way, use a fresh temp one
     let is_link = std::fs::symlink_metadata(&dir).map(|m| m.file_type().is_symlink()).unwrap_or(false);
@@ -131,9 +133,163 @@ impl Drop for TempDir {
     }
 }
 
+/// What a file looked like when it was last read or written: its modification time, size and (where the system
+/// has one) identity. A rename gives a file a new identity, so two saves in the same clock tick still differ.
+#[derive(Clone, Copy, Debug)]
+pub struct FileStamp {
+    mtime: Option<std::time::SystemTime>,
+    len: u64,
+    id: u64,
+    /// a quick fingerprint of the content (the first and last 64 KB, all of a small file): a file put back in place with
+    /// its old modification time and size still looks different when its bytes are
+    sig: u64,
+}
+
+/// Two stamps are the same when time, size and identity are, and the fingerprints are (a fingerprint of 0 is "couldn't be
+/// read", which matches any: a file nobody can open still compares by its metadata).
+impl PartialEq for FileStamp {
+    fn eq(&self, o: &Self) -> bool {
+        self.mtime == o.mtime && self.len == o.len && self.id == o.id && (self.sig == o.sig || self.sig == 0 || o.sig == 0)
+    }
+}
+impl Eq for FileStamp {}
+
+const SIG_BLOCK: usize = 64 * 1024;
+
+/// FNV-1a over the first and last `SIG_BLOCK` bytes (and the length).
+fn sig_of(first: &[u8], last: &[u8], len: u64) -> u64 {
+    let mut h: u64 = 0xcbf29ce484222325 ^ len;
+    for b in first.iter().chain(last) {
+        h ^= *b as u64;
+        h = h.wrapping_mul(0x100000001b3);
+    }
+    h
+}
+
+/// The fingerprint of whole file contents (what `file_stamp` finds when it reads the file back).
+fn sig_of_bytes(bytes: &[u8]) -> u64 {
+    let n = bytes.len();
+    sig_of(&bytes[..n.min(SIG_BLOCK)], &bytes[n.saturating_sub(SIG_BLOCK)..], n as u64)
+}
+
+fn sig_of_file(f: &mut std::fs::File, len: u64) -> u64 {
+    use std::io::{Read, Seek, SeekFrom};
+    let n = len as usize;
+    let mut first = vec![0u8; n.min(SIG_BLOCK)];
+    let mut last = vec![0u8; n.min(SIG_BLOCK)];
+    let ok = f.seek(SeekFrom::Start(0)).and_then(|_| f.read_exact(&mut first)).and_then(|_| f.seek(SeekFrom::Start(len - last.len() as u64))).and_then(|_| f.read_exact(&mut last));
+    if ok.is_err() {
+        return 0;
+    }
+    sig_of(&first, &last, len)
+}
+
+fn stamp_of(m: &std::fs::Metadata) -> FileStamp {
+    #[cfg(unix)]
+    let id = {
+        use std::os::unix::fs::MetadataExt;
+        m.ino()
+    };
+    #[cfg(not(unix))]
+    let id = 0;
+    FileStamp { mtime: m.modified().ok(), len: m.len(), id, sig: 0 }
+}
+
+/// The stamp of the file at `path` (None: no such file).
+pub fn file_stamp(path: &Path) -> Option<FileStamp> {
+    // a file that can't be opened (no permission) still has a stamp from its metadata, without the fingerprint
+    let Ok(mut f) = std::fs::File::open(path) else { return std::fs::metadata(path).ok().map(|m| stamp_of(&m)) };
+    let m = f.metadata().ok()?;
+    let mut st = stamp_of(&m);
+    st.sig = sig_of_file(&mut f, m.len());
+    Some(st)
+}
+
+/// An advisory lock on a model file, held while a writer checks that the file is still what it read and renames its
+/// new version over it (every writer of the live file takes it: the app, an agent's flush, a rollback). It lives in a
+/// small hidden file beside the model and is let go when this value is dropped (or the program dies).
+pub struct FileLock(#[allow(dead_code)] std::fs::File);
+
+/// Take the lock for the model file `path`, waiting up to `wait`. Err: somebody held it that long. Ok(None): a lock
+/// can't be made here (a read-only folder, a file system without locks): the stamp check still runs.
+pub fn lock_for(path: &Path, wait: std::time::Duration) -> Result<Option<FileLock>, ()> {
+    lock_for_why(path, wait).map(|(l, _)| l)
+}
+
+/// `lock_for`, and when no lock could be made, why (for the person: saving carries on, protected only by the stamp check).
+///
+/// A lock path that is not a plain file (a link, a folder, a pipe) is never followed; where the program can, it is removed
+/// (a link is removed as a link, a folder only when empty) and a plain lock file made in its place. A lock file that can't
+/// be opened (mode 000) is replaced the same way.
+pub fn lock_for_why(path: &Path, wait: std::time::Duration) -> Result<(Option<FileLock>, Option<String>), ()> {
+    let dir = path.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(Path::new("."));
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "file".into());
+    let lock_path = dir.join(format!(".{name}.lock"));
+    let open = |create_new: bool| {
+        let mut o = std::fs::OpenOptions::new();
+        o.read(true).write(true);
+        if create_new {
+            o.create_new(true);
+        } else {
+            o.create(true).truncate(false);
+        }
+        o.open(&lock_path)
+    };
+    // never follow a link: the lock file is ours. Something else in its place is cleared away when it can be.
+    if let Ok(m) = std::fs::symlink_metadata(&lock_path) {
+        if !m.file_type().is_file() {
+            let gone = if m.is_dir() { std::fs::remove_dir(&lock_path) } else { std::fs::remove_file(&lock_path) };
+            if gone.is_err() {
+                return Ok((None, Some(format!("something that isn't a file is in the way of its lock file ({})", lock_path.display()))));
+            }
+        }
+    }
+    let f = match open(false) {
+        Ok(f) => f,
+        Err(e) => {
+            // a lock file that can't be opened (mode 000): replaced once. (Never when the folder itself can't be written.)
+            if e.kind() == std::io::ErrorKind::PermissionDenied {
+                std::fs::remove_file(&lock_path).ok();
+            }
+            match open(true) {
+                Ok(f) => f,
+                Err(e2) => return Ok((None, Some(format!("its lock file can't be made here ({e2})")))),
+            }
+        }
+    };
+    let until = std::time::Instant::now() + wait;
+    loop {
+        match f.try_lock() {
+            Ok(()) => return Ok((Some(FileLock(f)), None)),
+            Err(std::fs::TryLockError::WouldBlock) => {
+                if std::time::Instant::now() >= until {
+                    return Err(());
+                }
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            // a file system that has no locks (some network shares): the stamp check still runs
+            Err(std::fs::TryLockError::Error(e)) => return Ok((None, Some(format!("this file system has no file locks ({e})")))),
+        }
+    }
+}
+
+/// What `write_atomic_guarded` did.
+#[derive(Debug)]
+pub enum Written {
+    /// the new file is in place; this is its stamp (taken before the rename, so nobody else's later write is mistaken for it)
+    Done(Option<FileStamp>),
+    /// the guard said no just before the rename: the old file is untouched
+    Refused,
+}
+
 /// Write a file so it is either the old one or the whole new one, never half
 /// of it: write beside it, flush to disk, then rename over it.
 pub fn write_atomic(path: impl AsRef<Path>, bytes: &[u8]) -> std::io::Result<()> {
+    write_atomic_guarded(path, bytes, || true).map(|_| ())
+}
+
+/// `write_atomic`, but `guard` is asked as the very last step before the rename: false leaves the old file as it was.
+pub fn write_atomic_guarded(path: impl AsRef<Path>, bytes: &[u8], guard: impl FnOnce() -> bool) -> std::io::Result<Written> {
     let path = path.as_ref();
     // a file that is a link is written through it (replacing the link would orphan its target)
     let target;
@@ -150,14 +306,19 @@ pub fn write_atomic(path: impl AsRef<Path>, bytes: &[u8]) -> std::io::Result<()>
         let mut f = std::fs::OpenOptions::new().write(true).create_new(true).open(&tmp)?;
         f.write_all(bytes)?;
         f.sync_all()?;
+        let stamp = f.metadata().ok().map(|m| FileStamp { sig: sig_of_bytes(bytes), ..stamp_of(&m) });
         drop(f);
         // the replacement keeps the mode the person gave the old file
         if let Ok(old) = std::fs::metadata(path) {
             std::fs::set_permissions(&tmp, old.permissions()).ok();
         }
-        std::fs::rename(&tmp, path)
+        if !guard() {
+            return Ok(Written::Refused);
+        }
+        std::fs::rename(&tmp, path)?;
+        Ok(Written::Done(stamp))
     })();
-    if result.is_err() {
+    if !matches!(result, Ok(Written::Done(_))) {
         std::fs::remove_file(&tmp).ok();
     } else {
         #[cfg(unix)]

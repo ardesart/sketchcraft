@@ -99,13 +99,13 @@
   &.clash {
     background: var(--accent-soft);
   }
-}
 
-.key-row .btn {
-  border-color: transparent;
+  .btn {
+    border-color: transparent;
 
-  &:disabled {
-    opacity: 0.35;
+    &:disabled {
+      opacity: 0.35;
+    }
   }
 }
 

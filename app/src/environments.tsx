@@ -1,7 +1,7 @@
 // Environments (a sky and a place for the model) and the starter templates.
 import { type Scene } from "./engine";
 import { Icons } from "./icons";
-import { TEMPLATES } from "./templates";
+import { EXAMPLES, TEMPLATES } from "./templates";
 import { type Run } from "./panelkit";
 
 /** Ready-made settings to put a model in. */
@@ -37,6 +37,22 @@ export function Environments({ scene, run, onToast }: { scene: Scene; run: Run; 
           Remove the environment
         </button>
       )}
+    </div>
+  );
+}
+
+/** Finished example models: one click opens one (after asking, when there's a model open). */
+export function Examples({ onExample }: { onExample: (name: string, data: string) => void }) {
+  return (
+    <div className="tiles">
+      {EXAMPLES.map((x) => (
+        <button key={x.name} className="tile" onClick={() => onExample(x.name, x.data)} title={x.about} data-testid={`example-${x.name.toLowerCase()}`}>
+          <span className="tile-art thumb-art">
+            <img className="thumb" src={x.thumb} alt="" />
+          </span>
+          <span>{x.name}</span>
+        </button>
+      ))}
     </div>
   );
 }

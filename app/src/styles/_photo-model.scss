@@ -11,10 +11,8 @@
   display: grid;
   grid-template-columns: 1fr 250px;
   gap: 14px;
-}
 
-@media (max-width: 800px) {
-  .pm-body {
+  @media (max-width: 800px) {
     grid-template-columns: 1fr;
   }
 }
@@ -114,10 +112,10 @@
     .count {
       font-size: $font-xs;
       color: var(--muted);
-    }
 
-    .count.warn {
-      color: var(--danger);
+      &.warn {
+        color: var(--danger);
+      }
     }
 
     .rowbtn {

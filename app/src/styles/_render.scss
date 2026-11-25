@@ -23,12 +23,14 @@
 }
 /* room for the settings below while they're open */
 
-.render-dlg.more .render-view img {
-  max-height: 40vh;
-}
+.render-dlg.more {
+  .render-view img {
+    max-height: 40vh;
+  }
 
-.render-dlg.more .render-view {
-  min-height: 200px;
+  .render-view {
+    min-height: 200px;
+  }
 }
 
 .render-empty {
@@ -111,10 +113,8 @@
     justify-self: start;
     margin-top: 6px;
   }
-}
 
-@media (max-width: 720px) {
-  .render-more {
+  @media (max-width: 720px) {
     grid-template-columns: 1fr;
   }
 }

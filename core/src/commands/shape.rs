@@ -5,6 +5,7 @@ use super::*;
 
 impl Engine {
     pub(super) fn run_shape(&mut self, cmd: Command) -> Result<Value> {
+        let untrusted = self.untrusted;
         let m: &mut Model = active_model!(self);
         Ok(match cmd {
             Command::Weld { edges } => json!({"curve": m.weld(&edges)?}),
@@ -117,18 +118,18 @@ impl Engine {
                 json!({})
             }
             Command::Bevel { edges, size, segments } => {
-                let groups = m.bevel(&edges, size, segments)?;
+                let groups = m.with_deadline(untrusted.then_some(crate::csg::SOLID_SECONDS), |m| m.bevel(&edges, size, segments))?;
                 json!({"groups": groups, "group": groups.first()})
             }
             Command::Divide { edge, count } => json!({"points": m.divide(edge, count)?}),
             Command::Slice { id, origin, normal } => {
-                let groups = m.slice(id, v3(origin), v3(normal))?;
+                let groups = m.with_deadline(untrusted.then_some(crate::csg::SOLID_SECONDS), |m| m.slice(id, v3(origin), v3(normal)))?;
                 json!({"groups": groups, "group": groups.first()})
             }
             Command::Intersect { ids, with } => json!({"lines": m.intersect(&ids, with != "selection")?}),
             Command::Flip { ids, axis } => json!({"moved": m.flip(&ids, axis_index(&axis)?)?}),
             Command::Solid { op, ids } => {
-                let groups = crate::csg::solid(m, &op, &ids)?;
+                let groups = m.with_deadline(untrusted.then_some(crate::csg::SOLID_SECONDS), |m| crate::csg::solid(m, &op, &ids))?;
                 json!({"groups": groups, "group": groups.first()})
             }
             // on a scratch copy: checking adds paint entries it doesn't need to keep
@@ -136,6 +137,35 @@ impl Engine {
                 Some(v) => json!({"solid": true, "volume": v}),
                 None => json!({"solid": false}),
             },
+            Command::FixModel { ids, dry_run, stray_edges } => {
+                let opts = crate::fix::FixOptions { stray_edges };
+                // inside `edit` or with ids it works on that model's own geometry; with neither, components too
+                let scope = m.fix_scope(&ids)?;
+                let whole = ids.is_empty() && self.ctx.is_none();
+                let run = |m: &mut Model| if whole { m.fix_everything(&opts) } else { m.fix_model(&scope, &opts) };
+                let mut report = if dry_run { run(&mut m.clone()) } else { run(m) };
+                report.dry_run = dry_run;
+                let mut v = serde_json::to_value(&report)?;
+                v["changes"] = json!(report.changes());
+                if dry_run || report.changes() == 0 {
+                    v["unchanged"] = json!(true);
+                }
+                v
+            }
+            Command::CheckSolid { ids } => {
+                let scope = m.fix_scope(&ids)?;
+                serde_json::to_value(m.solid_check(&scope))?
+            }
+            Command::PrintCheck { ids, min_wall, overhang_angle, build } => {
+                let scope = m.fix_scope(&ids)?;
+                let d = crate::print::PrintOptions::default();
+                let opts = crate::print::PrintOptions {
+                    min_wall_mm: min_wall.unwrap_or(d.min_wall_mm).clamp(0.0, 1000.0),
+                    overhang_deg: overhang_angle.unwrap_or(d.overhang_deg).clamp(0.0, 90.0),
+                    build_mm: build,
+                };
+                serde_json::to_value(m.print_check(&scope, &opts))?
+            }
             other => unreachable!("command routed to the wrong group: {other:?}"),
         })
     }

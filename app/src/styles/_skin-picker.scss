@@ -46,15 +46,15 @@
 
     .mstage {
       position: relative;
-    }
 
-    .mstage b {
-      position: absolute;
-      left: 30%;
-      right: 30%;
-      bottom: 5px;
-      height: 7px;
-      border-radius: 3px;
+      b {
+        position: absolute;
+        left: 30%;
+        right: 30%;
+        bottom: 5px;
+        height: 7px;
+        border-radius: 3px;
+      }
     }
   }
 

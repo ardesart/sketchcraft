@@ -389,7 +389,16 @@ impl Model {
                 self.delete(&[*id])?;
             }
         }
-        self.edges.retain(|_, e| !(verts.contains(&e.a) && verts.contains(&e.b)) || self.faces.values().any(|f| f.uses_edge(e.a, e.b)));
+        // the lines the remaining faces still use stay: found once, not by searching every face for every line
+        self.check_deadline()?;
+        let mut used: std::collections::HashSet<(Id, Id)> = std::collections::HashSet::new();
+        for f in self.faces.values() {
+            for l in f.loops() {
+                used.extend(crate::model::pairs(l).map(|(a, b)| (a.min(b), a.max(b))));
+            }
+        }
+        self.edges.retain(|_, e| !(verts.contains(&e.a) && verts.contains(&e.b)) || used.contains(&(e.a.min(e.b), e.a.max(e.b))));
+        self.check_deadline()?;
         self.gc();
         let did = self.new_id();
         self.definitions.insert(did, Definition { name: name.clone(), model: std::sync::Arc::new(def), attrs: Default::default(), source: None, cuts: false, face_me: false });
@@ -421,13 +430,17 @@ impl Model {
         let gid = self.new_id();
         self.groups.insert(gid, Group { name: i.name.clone(), ..Default::default() });
         let mut map: HashMap<Id, Id> = HashMap::new();
+        // one lookup of the edges by their ends (a search of every edge for each of the component's made this quadratic)
+        let mut look = crate::model::Lookup::default();
         for (&k, v) in &def.vertices {
+            self.check_deadline()?;
             let id = self.new_id();
             self.vertices.insert(id, crate::model::Vertex { p: i.transform.transform_point3(v.p), group: Some(gid) });
             map.insert(k, id);
         }
         for e in def.edges.values() {
-            let id = self.edge(map[&e.a], map[&e.b]);
+            self.check_deadline()?;
+            let id = self.edge_with(map[&e.a], map[&e.b], &mut look);
             let ne = self.edges.get_mut(&id).unwrap();
             ne.soft = e.soft;
             ne.seam = e.seam;
@@ -436,6 +449,7 @@ impl Model {
         self.note_remap(true, || crate::anchors::Remap::Vertices { scope: None, from_path: vec![inst], to_path: Vec::new(), map: map.iter().map(|(a, b)| (*a, *b)).collect() });
         let mirror = i.transform.determinant() < 0.0;
         for f in def.faces.values() {
+            self.check_deadline()?;
             let mut nf = Face {
                 outer: f.outer.iter().map(|v| map[v]).collect(),
                 holes: f.holes.iter().map(|h| h.iter().map(|v| map[v]).collect()).collect(),
@@ -455,7 +469,7 @@ impl Model {
                     self.materials.entry(m.clone()).or_insert_with(|| dm.clone());
                 }
             }
-            self.insert_face(nf);
+            self.insert_face_with(nf, &mut look);
         }
         Ok(gid)
     }
@@ -505,7 +519,11 @@ impl Model {
     pub fn soften(&mut self, ids: &[Id], soft: bool) -> Result<usize> {
         let mut n = 0;
         let mut look = crate::model::Lookup::default();
-        for id in ids {
+        // each id once, in the order given (a repeated id would only repeat the work)
+        let mut seen: std::collections::HashSet<Id> = std::collections::HashSet::new();
+        let ids: Vec<Id> = ids.iter().copied().filter(|id| seen.insert(*id)).collect();
+        let mut groups: std::collections::HashSet<Id> = std::collections::HashSet::new();
+        for id in &ids {
             if let Some(e) = self.edges.get_mut(id) {
                 e.soft = soft;
                 n += 1;
@@ -519,9 +537,22 @@ impl Model {
                         }
                     }
                 }
+            } else if self.groups.contains_key(id) {
+                groups.insert(*id);
             } else {
-                bail!("{id} is not an edge or face");
+                bail!("{id} is not an edge, face or group");
             }
+        }
+        if !groups.is_empty() {
+            // groups: every face inside them, nested groups too ("soften the box" when the box is a group), found in one pass
+            let mut inside_of: std::collections::HashMap<Option<Id>, bool> = std::collections::HashMap::new();
+            let faces: Vec<Id> = self
+                .faces
+                .iter()
+                .filter(|(_, f)| *inside_of.entry(f.group).or_insert_with(|| self.ancestors(f.group).iter().any(|a| groups.contains(a))))
+                .map(|(&k, _)| k)
+                .collect();
+            n += self.soften(&faces, soft)?;
         }
         Ok(n)
     }
@@ -535,10 +566,22 @@ impl Model {
     /// Soften every edge that lies between two coplanar faces (cleans up
     /// imported streets and split walls).
     pub fn soften_coplanar(&mut self) -> usize {
+        // which faces use each edge, worked out once (a scan of every face per edge would grow with the square)
+        let mut users: std::collections::HashMap<(Id, Id), Vec<Id>> = std::collections::HashMap::new();
+        for (&fid, f) in &self.faces {
+            for l in f.loops() {
+                for (a, b) in crate::model::pairs(l) {
+                    let u = users.entry((a.min(b), a.max(b))).or_default();
+                    if u.last() != Some(&fid) {
+                        u.push(fid);
+                    }
+                }
+            }
+        }
         let keys: Vec<(Id, Id, Id)> = self.edges.iter().map(|(&k, e)| (k, e.a, e.b)).collect();
         let mut n = 0;
         for (k, a, b) in keys {
-            let fs = self.faces_using_edge(a, b);
+            let Some(fs) = users.get(&(a.min(b), a.max(b))) else { continue };
             if fs.len() == 2 && self.normal(fs[0]).dot(self.normal(fs[1])) > 1.0 - 1e-6 {
                 self.edges.get_mut(&k).unwrap().soft = true;
                 n += 1;

@@ -1,11 +1,12 @@
 // Release gate for the `publish` job (CASHOUT-001). Run before anything is signed:
 //   node tools/release/check-bundles.mjs <bundles-dir> <product> <version>
 // <bundles-dir> holds one folder per platform build, downloaded separately:
-//   macos/  windows/  linux/
+//   macos/  windows/  linux/  linux-arm64/
 // Each folder may contain ONLY that platform's expected file names (nothing else, no folders, no
 // links, no duplicates), and each file must be the right kind of file by its first bytes. So one
-// platform's build can never supply another platform's update package. Writes
-// <bundles-dir>/manifest.json (the three update packages that get signed, and every file to upload).
+// platform's build can never supply another platform's update package; Linux programs must also be built
+// for that folder's CPU. Writes <bundles-dir>/manifest.json (the update packages that get signed, one per
+// folder, and every file to upload).
 import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -19,6 +20,8 @@ const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const P = esc(product), V = esc(version);
 const hex = (b) => b.toString("hex");
 const starts = (...sigs) => (buf) => sigs.some((s) => hex(buf.subarray(0, s.length / 2)) === s);
+// a 64-bit little-endian ELF program for one CPU (e_machine at byte 18: 0x3e x86-64, 0xb7 AArch64)
+const elf = (machine) => (buf) => hex(buf.subarray(0, 6)) === "7f454c460201" && buf.length >= 20 && buf.readUInt16LE(18) === machine;
 
 const PLATFORMS = {
   macos: [
@@ -30,15 +33,20 @@ const PLATFORMS = {
     { key: "msi", re: new RegExp(`^${P}_${V}_x64_en-US\\.msi$`), kind: "msi", magic: starts("d0cf11e0a1b11ae1") },
   ],
   linux: [
-    { key: "update", re: new RegExp(`^${P}_${V}_amd64\\.AppImage$`), kind: "elf", magic: starts("7f454c46") },
+    { key: "update", re: new RegExp(`^${P}_${V}_amd64\\.AppImage$`), kind: "elf", magic: elf(0x3e) },
     { key: "deb", re: new RegExp(`^${P}_${V}_amd64\\.deb$`), kind: "deb", magic: starts("213c617263683e0a") },
     { key: "rpm", re: new RegExp(`^${P}-${V}-1\\.x86_64\\.rpm$`), kind: "rpm", magic: starts("edabeedb") },
+  ],
+  "linux-arm64": [
+    { key: "update", re: new RegExp(`^${P}_${V}_aarch64\\.AppImage$`), kind: "elf", magic: elf(0xb7) },
+    { key: "deb", re: new RegExp(`^${P}_${V}_arm64\\.deb$`), kind: "deb", magic: starts("213c617263683e0a") },
+    { key: "rpm", re: new RegExp(`^${P}-${V}-1\\.aarch64\\.rpm$`), kind: "rpm", magic: starts("edabeedb") },
   ],
 };
 const MACHO = starts("cafebabe", "feedface", "feedfacf", "cefaedfe", "cffaedfe");
 
 const fail = (m) => { console.error(`::error::${m}`); process.exit(1); };
-const head = (f, n = 16) => { const fd = fs.openSync(f, "r"); const b = Buffer.alloc(n); const r = fs.readSync(fd, b, 0, n, 0); fs.closeSync(fd); return b.subarray(0, r); };
+const head = (f, n = 32) => { const fd = fs.openSync(f, "r"); const b = Buffer.alloc(n); const r = fs.readSync(fd, b, 0, n, 0); fs.closeSync(fd); return b.subarray(0, r); };
 
 function macosTarball(f) {
   if (!starts("1f8b")(head(f))) return "not a gzip file";

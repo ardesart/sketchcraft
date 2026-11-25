@@ -1,4 +1,4 @@
-# Push a tag like v0.2.0 to build SketchCraft for macOS, Windows and Linux
+# Push a tag like v0.2.0 to build SketchCraft for macOS, Windows and Linux (x64 and arm64)
 # and attach the installers (plus the headless CLI, the portable ZIP and
 # SHA-256 checksums) to a DRAFT GitHub release. Nothing is public until you
 # review it and click "Publish release".
@@ -135,6 +135,10 @@ jobs:
             args: ""
           - platform: ubuntu-22.04
             args: ""
+          # Linux arm64 (Raspberry Pi 5, Ampere, Snapdragon laptops), built natively: Tauri's AppImage tooling
+          # only bundles for the machine it runs on. Same Ubuntu as x64, so the same glibc floor.
+          - platform: ubuntu-22.04-arm
+            args: ""
     runs-on: ${{ matrix.platform }}
     env:
       # yes/no from the `apple-check` job (see docs/SIGNING.md); this job never names a secret
@@ -144,7 +148,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Linux packages
-        if: matrix.platform == 'ubuntu-22.04'
+        if: startsWith(matrix.platform, 'ubuntu-')
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
@@ -224,6 +228,7 @@ jobs:
             macos-latest)   names=("${p}.app.tar.gz" "${p}_universal.app.tar.gz" "${p}_${v}_universal.dmg") ;;
             windows-latest) names=("${p}_${v}_x64-setup.exe" "${p}_${v}_x64_en-US.msi") ;;
             ubuntu-22.04)   names=("${p}_${v}_amd64.AppImage" "${p}_${v}_amd64.deb" "${p}-${v}-1.x86_64.rpm") ;;
+            ubuntu-22.04-arm) names=("${p}_${v}_aarch64.AppImage" "${p}_${v}_arm64.deb" "${p}-${v}-1.aarch64.rpm") ;;
             *) echo "::error::unknown platform"; exit 1 ;;
           esac
           for n in "${names[@]}"; do
@@ -368,6 +373,10 @@ jobs:
         with:
           name: bundles-ubuntu-22.04
           path: bundles/linux
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: bundles-ubuntu-22.04-arm
+          path: bundles/linux-arm64
       # Nothing is signed until every platform folder holds exactly its own expected names, and each
       # file is the right kind of file (Mach-O in the macOS app, PE .exe, ELF AppImage, ...).
       - name: Check each platform's files
@@ -467,6 +476,9 @@ jobs:
             bin: sketchcraft
           - os: ubuntu-22.04
             name: sketchcraft-cli-linux-x64
+            bin: sketchcraft
+          - os: ubuntu-22.04-arm
+            name: sketchcraft-cli-linux-arm64
             bin: sketchcraft
           - os: windows-latest
             name: sketchcraft-cli-windows-x64

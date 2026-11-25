@@ -17,3 +17,29 @@
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
   pointer-events: none;
 }
+
+// The parts laid out flat (laidoutbar.tsx): above the read-only notice, and clickable (it has the way back).
+.laidout-bar {
+  position: fixed;
+  bottom: 60px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px 12px;
+  max-width: min(820px, 92vw);
+  padding: 8px 10px 8px 18px;
+  font: 500 13px/1.4 var(--font);
+  color: var(--text);
+  background: var(--glass);
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  box-shadow: var(--shadow);
+
+  .muted {
+    color: var(--muted);
+  }
+}

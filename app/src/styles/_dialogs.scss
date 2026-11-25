@@ -55,20 +55,22 @@
   }
 }
 
-.swatch.texture {
-  background-size: cover;
-  background-position: center;
-}
+.swatch {
+  &.texture {
+    background-size: cover;
+    background-position: center;
+  }
 
-.swatch.add {
-  @include grid-center;
-  background: var(--bg);
-  color: var(--muted);
-  box-shadow: inset 0 0 0 1px var(--line-strong);
+  &.add {
+    @include grid-center;
+    background: var(--bg);
+    color: var(--muted);
+    box-shadow: inset 0 0 0 1px var(--line-strong);
 
-  &:hover {
-    color: var(--accent-ink);
-    background: var(--accent-soft);
+    &:hover {
+      color: var(--accent-ink);
+      background: var(--accent-soft);
+    }
   }
 }
 /* keyboard shortcuts sheet */
@@ -89,43 +91,43 @@
   border-radius: 14px;
   background: var(--panel, $white);
   box-shadow: 0 20px 60px rgba(20, 22, 40, 0.25);
-}
 
-.sheet-head {
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-  margin-bottom: 12px;
+  &-head {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    margin-bottom: 12px;
 
-  .btn {
-    margin-left: auto;
-  }
-}
-
-.sheet-cols {
-  columns: 3 240px;
-  column-gap: 28px;
-}
-
-.sheet-sec {
-  break-inside: avoid;
-  margin-bottom: 14px;
-}
-
-.sheet-row {
-  display: flex;
-  gap: 10px;
-  align-items: baseline;
-  padding: 3px 0;
-  font-size: $font-l;
-
-  kbd {
-    flex: none;
+    .btn {
+      margin-left: auto;
+    }
   }
 
-  span,
-  label {
-    @include fill;
+  &-cols {
+    columns: 3 240px;
+    column-gap: 28px;
+  }
+
+  &-sec {
+    break-inside: avoid;
+    margin-bottom: 14px;
+  }
+
+  &-row {
+    display: flex;
+    gap: 10px;
+    align-items: baseline;
+    padding: 3px 0;
+    font-size: $font-l;
+
+    kbd {
+      flex: none;
+    }
+
+    span,
+    label {
+      @include fill;
+    }
   }
 }
 
@@ -141,15 +143,17 @@
 }
 /* Match Photo: the photo behind the model, full height, centered */
 
-.viewport .backdrop {
-  position: absolute;
-  top: 0;
-  left: 50%;
-  height: 100%;
-  transform: translateX(-50%);
-  pointer-events: none;
-  user-select: none;
-  z-index: -1;
+.viewport {
+  .backdrop {
+    position: absolute;
+    top: 0;
+    left: 50%;
+    height: 100%;
+    transform: translateX(-50%);
+    pointer-events: none;
+    user-select: none;
+    z-index: -1;
+  }
 }
 
 .matchphoto {
@@ -191,11 +195,13 @@
   }
 }
 
-.views-list .view-thumb {
-  width: 22px;
-  height: 16px;
-  border-radius: 3px;
-  object-fit: cover;
+.views-list {
+  .view-thumb {
+    width: 22px;
+    height: 16px;
+    border-radius: 3px;
+    object-fit: cover;
+  }
 }
 
 .style-checks {

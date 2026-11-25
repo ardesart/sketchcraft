@@ -4,11 +4,11 @@ import english from "../src/locale-en";
 import italian from "../src/locale-it";
 
 describe("the Vertical layout's tabs", () => {
-  it("adds Properties as the fourth tab in Vertical only", () => {
-    expect(panelTabs("model", "side")).toEqual(["outliner", "library", "views", "properties"]);
-    expect(panelTabs("layout", "side")).toEqual(["pages", "outliner", "views", "properties"]);
-    expect(panelTabs("model", "classic")).toEqual(["outliner", "library", "views"]);
-    expect(panelTabs("model", "floating")).toEqual(["outliner", "library", "views"]);
+  it("adds Properties in Vertical only, and SketchCraft AI last everywhere", () => {
+    expect(panelTabs("model", "side", true)).toEqual(["outliner", "library", "views", "properties", "ai"]);
+    expect(panelTabs("layout", "side", true)).toEqual(["pages", "outliner", "views", "properties", "ai"]);
+    expect(panelTabs("model", "classic", true)).toEqual(["outliner", "library", "views", "ai"]);
+    expect(panelTabs("model", "floating", true)).toEqual(["outliner", "library", "views", "ai"]);
   });
 
   it("reads a remembered tab back only if it is a known one", () => {
@@ -20,18 +20,18 @@ describe("the Vertical layout's tabs", () => {
   });
 
   it("falls back to the first tab when the chosen one isn't there (Properties after leaving Vertical)", () => {
-    expect(shownTab("properties", panelTabs("model", "classic"))).toBe("outliner");
-    expect(shownTab("library", panelTabs("layout", "side"))).toBe("pages");
-    expect(shownTab("properties", panelTabs("model", "side"))).toBe("properties");
+    expect(shownTab("properties", panelTabs("model", "classic", true))).toBe("outliner");
+    expect(shownTab("library", panelTabs("layout", "side", true))).toBe("pages");
+    expect(shownTab("properties", panelTabs("model", "side", true))).toBe("properties");
   });
 
   it("moves between tabs with the arrow keys, wrapping, and Home and End", () => {
-    const tabs = panelTabs("model", "side");
+    const tabs = panelTabs("model", "side", true);
     expect(stepTab(tabs, "outliner", "ArrowRight")).toBe("library");
-    expect(stepTab(tabs, "properties", "ArrowRight")).toBe("outliner");
-    expect(stepTab(tabs, "outliner", "ArrowLeft")).toBe("properties");
+    expect(stepTab(tabs, "ai", "ArrowRight")).toBe("outliner");
+    expect(stepTab(tabs, "outliner", "ArrowLeft")).toBe("ai");
     expect(stepTab(tabs, "views", "Home")).toBe("outliner");
-    expect(stepTab(tabs, "views", "End")).toBe("properties");
+    expect(stepTab(tabs, "views", "End")).toBe("ai");
     expect(stepTab(tabs, "views", "a")).toBeNull();
   });
 
@@ -39,4 +39,10 @@ describe("the Vertical layout's tabs", () => {
     expect(english["tab.properties"]).toBe("Properties");
     expect(italian["tab.properties"]).toBe("Proprietà");
   });
+});
+
+it("leaves SketchCraft AI out unless the labs switch is on", () => {
+  expect(panelTabs("model", "side")).toEqual(["outliner", "library", "views", "properties"]);
+  expect(panelTabs("model", "classic")).toEqual(["outliner", "library", "views"]);
+  expect(panelTabs("model", "classic", true).at(-1)).toBe("ai");
 });

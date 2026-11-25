@@ -201,6 +201,7 @@ export const MENU_COMMANDS: CommandDef[] = [
   c("view.vertexcolors", "Vertex colours", "View"),
   c("view.parallel", "Parallel projection", "View"),
   c("view.hiderest", "Hide rest of model", "View"),
+  c("view.laidout", "Lay out parts", "View"),
   c("ws.model", "Model workspace", "Window"),
   c("ws.arch", "Arch workspace", "Window"),
   c("ws.design", "Design workspace", "Window"),
@@ -233,13 +234,13 @@ export interface Preset {
 }
 
 export const PRESETS: Preset[] = [
-  { id: "sketchcraft", name: "SketchCraft", blurb: "The default: SketchUp's keys, plus a few more (N, J, D, W, X).", changes: {} },
+  { id: "sketchcraft", name: "SketchCraft", blurb: "The default: SketchUp's keys, plus a few more (N, J, D, W, X, U).", changes: {} },
   {
     id: "sketchup",
     name: "SketchUp",
     blurb: "SketchUp's own defaults: Space select, L line, R rectangle, P push/pull, M move, Q rotate, S scale, E eraser, B paint, T tape, O orbit, H pan, Z zoom, F offset, G component, K back edges. Tools SketchUp has no key for have none.",
-    // SketchUp leaves these without a key: Polygon, Follow Me, Dimension, Text, Section Plane
-    changes: { "tool:polygon": "", "tool:followme": "", "tool:dimension": "", "tool:text": "", "tool:section": "" },
+    // SketchUp leaves these without a key: Polygon, Follow Me, Dimension, Text, Section Plane (and has no Curve tool)
+    changes: { "tool:polygon": "", "tool:followme": "", "tool:dimension": "", "tool:text": "", "tool:section": "", "tool:spline": "" },
   },
 ];
 export const presetDef = (id: string) => PRESETS.find((p) => p.id === id);

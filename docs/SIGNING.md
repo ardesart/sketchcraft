@@ -134,7 +134,7 @@ Each needs its own small workflow change; tell Claude which you pick.
 
 The release workflow could not be run while it was changed (it needs GitHub). On the
 first tag, watch the `build` and `publish` jobs: `publish` expects one `.app.tar.gz`,
-one `-setup.exe` and one `.AppImage` among the built files, signs each with
+one `-setup.exe` and one `.AppImage` per Linux CPU (x64 and arm64) among the built files, signs each with
 `tauri signer sign` and writes `latest.json` itself. If a step fails, the draft
 isn't created and nothing is published.
 

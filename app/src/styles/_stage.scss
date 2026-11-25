@@ -22,38 +22,38 @@
   position: absolute;
   pointer-events: none;
   transform: translate(-50%, -50%);
-}
 
-.snap-dot {
-  display: block;
-  @include size(9px);
-  border-radius: 50%;
-  background: $white;
-  border: 2px solid var(--accent);
+  &-dot {
+    display: block;
+    @include size(9px);
+    border-radius: 50%;
+    background: $white;
+    border: 2px solid var(--accent);
 
-  &.end {
-    background: $green;
-    border-color: $white;
-    box-shadow: 0 0 0 1.5px $green;
+    &.end {
+      background: $green;
+      border-color: $white;
+      box-shadow: 0 0 0 1.5px $green;
+    }
+
+    &.mid {
+      background: $blue;
+      border-color: $white;
+      box-shadow: 0 0 0 1.5px $blue;
+    }
   }
 
-  &.mid {
-    background: $blue;
-    border-color: $white;
-    box-shadow: 0 0 0 1.5px $blue;
+  &-label {
+    position: absolute;
+    left: 12px;
+    top: 10px;
+    padding: 3px 7px;
+    border-radius: $radius-sm;
+    background: rgba(29, 30, 36, 0.86);
+    color: $white;
+    font-size: $font-xs;
+    white-space: nowrap;
   }
-}
-
-.snap-label {
-  position: absolute;
-  left: 12px;
-  top: 10px;
-  padding: 3px 7px;
-  border-radius: $radius-sm;
-  background: rgba(29, 30, 36, 0.86);
-  color: $white;
-  font-size: $font-xs;
-  white-space: nowrap;
 }
 
 .toolbar {

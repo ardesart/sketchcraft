@@ -1,5 +1,6 @@
 // Inference ("snapping") engine: figures out what the cursor means in 3D.
 // Priority: endpoint > center / origin > midpoint > guide point > axis from the last point >
+// in line with two points hovered earlier (where their lines cross) > in line with one >
 // on an edge / guide > on a face > on the ground (or the drawing plane).
 import * as THREE from "three";
 import type { FaceInfo, Scene } from "./engine";
@@ -10,9 +11,12 @@ export interface Snap {
   p: THREE.Vector3;
   /** a hovered point this one lines up with (draw a dotted line from it) */
   from?: THREE.Vector3;
+  /** a second hovered point it lines up with, along `axis2`: `p` is where the two lines cross */
+  from2?: THREE.Vector3;
   kind: "endpoint" | "center" | "origin" | "midpoint" | "guide-point" | "scan-point" | "axis" | "on-edge" | "on-guide" | "face" | "ground" | "plane";
   label: string;
   axis?: Axis;
+  axis2?: Axis;
   /** direction of the edge or guide we're on */
   along?: THREE.Vector3;
   face?: FaceInfo;
@@ -131,6 +135,20 @@ export function closestOnLine(ray: THREE.Ray, o: THREE.Vector3, d: THREE.Vector3
   return o.clone().addScaledVector(d, t);
 }
 
+/** Where the lines (o1, d1) and (o2, d2) meet: null when they are parallel or pass each other.
+ * The scene's points are rounded to 0.01 mm, so lines within a tenth of a millimetre meet. */
+export function crossing(o1: THREE.Vector3, d1: THREE.Vector3, o2: THREE.Vector3, d2: THREE.Vector3): THREE.Vector3 | null {
+  const w = o2.clone().sub(o1);
+  const b = d1.dot(d2);
+  const den = d1.lengthSq() * d2.lengthSq() - b * b;
+  if (den < 1e-9) return null;
+  const t = (w.dot(d1) * d2.lengthSq() - b * w.dot(d2)) / den;
+  const u = (b * w.dot(d1) - w.dot(d2) * d1.lengthSq()) / den;
+  const p = o1.clone().addScaledVector(d1, t);
+  const q = o2.clone().addScaledVector(d2, u);
+  return p.distanceTo(q) < 1e-4 ? p.add(q).multiplyScalar(0.5) : null;
+}
+
 export function infer(env: InferEnv, e: { clientX: number; clientY: number }, opts: InferOpts = {}): Snap {
   const s = env.scene;
   const mx = e.clientX - env.rect.left;
@@ -213,6 +231,31 @@ export function infer(env: InferEnv, e: { clientX: number; clientY: number }, op
       }
       return { p: ax.q, kind: "axis", axis: ax.k, label: `On ${AXIS_NAMES[ax.k]} Axis`, normal: plane?.normal ?? up };
     }
+  }
+
+  // in line with two points hovered earlier at once: where their axis lines cross (the middle
+  // of a board, from the midpoints of two of its sides). It is a point, so it catches the cursor
+  // from as far as a midpoint or a guide point does, further than the single line below.
+  {
+    let x: { q: THREE.Vector3; d: number; a: THREE.Vector3; b: THREE.Vector3; ka: Axis; kb: Axis } | null = null;
+    for (let i = 0; i < recent.length; i++) {
+      for (let j = i + 1; j < recent.length; j++) {
+        const a = recent[i], b = recent[j];
+        for (const ka of [0, 1, 2] as Axis[]) {
+          for (const kb of [0, 1, 2] as Axis[]) {
+            if (ka === kb) continue;
+            const q = crossing(a, AXES[ka], b, AXES[kb]);
+            // (a crossing at one of the two points is that point: nothing new to line up with)
+            if (!q || q.distanceTo(a) < 1e-6 || q.distanceTo(b) < 1e-6 || !onPlane(q) || !visible(q)) continue;
+            const sc = screen(env, q);
+            if (sc.behind) continue;
+            const d = Math.hypot(sc.x - mx, sc.y - my);
+            if (d < 10 && (!x || d < x.d)) x = { q, d, a, b, ka, kb };
+          }
+        }
+      }
+    }
+    if (x) return { p: x.q, from: x.a.clone(), from2: x.b.clone(), kind: "axis", axis: x.ka, axis2: x.kb, label: "From Points", normal: plane?.normal ?? (hit?.face ? V(hit.face.normal) : up) };
   }
 
   // in line with a point hovered earlier, along an axis

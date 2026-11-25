@@ -8,7 +8,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
-import { inTauri } from "./engine";
+import { inTauri, onMobileApp } from "./engine";
 
 const FIRST_CHECK_MS = 8_000;
 const EVERY_MS = 6 * 60 * 60 * 1000;
@@ -46,6 +46,11 @@ export function UpdateCard() {
 
   const look = async (manual: boolean) => {
     if (!inTauri || busy.current) return;
+    // the Android app doesn't update itself: a new APK (or a store update) replaces it
+    if (onMobileApp) {
+      if (manual) setCard({ kind: "note", text: `This is SketchCraft ${await getVersion()} for Android. New versions come as a new APK on the releases page.` });
+      return;
+    }
     if (manual) setCard({ kind: "note", text: "Checking for updates…" });
     try {
       const u = await check();
@@ -61,7 +66,7 @@ export function UpdateCard() {
   };
 
   useEffect(() => {
-    if (!inTauri) return;
+    if (!inTauri || onMobileApp) return;
     const first = window.setTimeout(() => void look(false), FIRST_CHECK_MS);
     const every = window.setInterval(() => void look(false), EVERY_MS);
     const onAsk = () => void look(true);

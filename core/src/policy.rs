@@ -43,7 +43,7 @@ const MAX_LIST_UNTRUSTED: usize = 200_000;
 const MAX_VALUES_UNTRUSTED: usize = 400_000;
 /// Commands that draw from a list of points, whose cost grows faster than linearly (or, for the brushes, with the
 /// points times what each one reaches).
-const DRAWING: [&str; 8] = ["line", "polygon", "wall", "text_3d", "text3d", "follow_me", "texture_paint_stroke", "vertex_paint"];
+const DRAWING: [&str; 10] = ["line", "spline", "bezier", "polygon", "wall", "text_3d", "text3d", "follow_me", "texture_paint_stroke", "vertex_paint"];
 /// Keys whose arrays are point lists.
 const POINT_KEYS: [&str; 4] = ["points", "rings", "ring", "uv_points"];
 /// Most sheets a model holds (and most pages one `sheets` command describes), by who is asking.
@@ -153,6 +153,10 @@ const WRITES: &[(&str, &str, &[&str])] = &[
     ("export_glb", "path", &["glb"]),
     ("export_fbx", "path", &["fbx"]),
     ("export_stl", "path", &["stl"]),
+    ("export_3mf", "path", &["3mf"]),
+    ("export_cut_diagrams", "path", &["pdf", "svg"]),
+    ("export_cut_labels", "path", &["pdf"]),
+    ("export_cnc", "path", &["zip", "dxf"]),
     ("export_dae", "path", &["dae"]),
     ("export_dxf", "path", &["dxf"]),
     ("export_dwg", "path", &["dwg"]),
@@ -174,7 +178,7 @@ const LIBRARY: [&str; 3] = ["library", "save_to_library", "library_add"];
 
 /// Commands that only change or inspect the model: safe for plugins.
 const MODEL: &[&str] = &[
-    "rect", "polygon", "line", "circle", "arc", "offset", "follow_me", "pushpull", "push_pull", "move", "rotate", "scale", "duplicate", "array", "delete", "reverse", "paint", "texture", "vertex_paint", "vertex_paint_clear", "vertex_colors", "begin_group", "end_group", "group", "faces", "pick", "copy", "info", "parts", "make_component", "place", "component_cuts", "component_face_me", "edit", "close", "explode", "components", "hide", "unhide", "tag", "tag_visible", "tag_color", "tag_style", "edge_style", "hatch_pattern", "hatch_patterns", "rename_tag", "set_parent", "ungroup", "lock", "soften", "rename", "guide", "clear_guides", "units", "dimension", "text", "save_view", "show_view", "delete_view", "sheets", "sheet_add", "sheet_edit", "sheet_delete", "viewport_add", "viewport_edit", "sheet_item_delete", "sheet_dim", "sheet_reattach", "sheet_line", "sheet_text", "sheet_table", "sheet_table_paste", "sheet_trim", "sheet_extend", "sheet_offset", "sheets_info", "drafting_status", "sheet_ir", "sheet_duplicate", "sheet_order", "viewport_points", "dimension_auto", "layout_preset", "render", "door_swing", "levels", "solid", "intersect", "flip", "section", "terrain_from_contours", "terrain_grid", "smoove", "stamp", "drape", "flip_edge", "match_photo", "set_attrs", "cloud_data", "cloud", "connected", "same_as", "resize", "section_plane", "section_edit", "section_off", "set_axes", "finish", "options", "report", "classify", "bevel", "divide", "slice", "material", "subd", "cage_edit", "subdivide", "timeline", "timeline_frames", "weld", "explode_curve", "make_unique", "orient_faces", "text_3d", "text3d", "opacity", "environment", "sun", "volume", "wall", "wall_pull", "wall_info", "room_rect", "room_preview", "rooms", "stairs", "roof", "column", "insert", "assets", "raise_walls", "project_photo", "photo_solve", "purge", "texture_project", "texture_uv", "texture_paint_new", "texture_paint_stroke", "texture_paint_status", "texture_pixels",
+    "rect", "polygon", "line", "circle", "arc", "spline", "bezier", "make_faces", "flatten", "offset", "follow_me", "pushpull", "push_pull", "move", "rotate", "scale", "duplicate", "array", "delete", "reverse", "paint", "texture", "vertex_paint", "vertex_paint_clear", "vertex_colors", "begin_group", "end_group", "group", "faces", "pick", "copy", "info", "parts", "parts_layout", "lay_out_parts", "cut_stock", "cut_plan", "dado", "rabbet", "tenon", "make_component", "place", "component_cuts", "component_face_me", "edit", "close", "explode", "components", "hide", "unhide", "tag", "tag_visible", "tag_color", "tag_style", "edge_style", "hatch_pattern", "hatch_patterns", "rename_tag", "set_parent", "ungroup", "lock", "soften", "rename", "guide", "clear_guides", "units", "dimension", "text", "save_view", "show_view", "delete_view", "sheets", "sheet_add", "sheet_edit", "sheet_delete", "viewport_add", "viewport_edit", "sheet_item_delete", "sheet_dim", "sheet_reattach", "sheet_line", "sheet_text", "sheet_table", "sheet_table_paste", "sheet_trim", "sheet_extend", "sheet_offset", "sheets_info", "drafting_status", "sheet_ir", "sheet_duplicate", "sheet_order", "viewport_points", "dimension_auto", "layout_preset", "render", "door_swing", "levels", "solid", "intersect", "flip", "section", "terrain_from_contours", "terrain_grid", "smoove", "stamp", "drape", "flip_edge", "match_photo", "set_attrs", "cloud_data", "cloud", "connected", "same_as", "resize", "section_plane", "section_edit", "section_off", "set_axes", "finish", "options", "report", "classify", "bevel", "divide", "slice", "material", "subd", "cage_edit", "subdivide", "timeline", "timeline_frames", "weld", "explode_curve", "make_unique", "orient_faces", "fix_model", "check_solid", "print_check", "text_3d", "text3d", "opacity", "environment", "sun", "volume", "wall", "wall_pull", "wall_info", "room_rect", "room_preview", "rooms", "stairs", "roof", "column", "insert", "assets", "raise_walls", "project_photo", "photo_solve", "purge", "texture_project", "texture_uv", "texture_paint_new", "texture_paint_stroke", "texture_paint_status", "texture_pixels", "floorplan_build", "room_info",
     "texture_position", "texture_frame", "uv_seam", "uv_unwrap", "uv_pack", "uv_lightmap", "uv_set", "uv_transform", "uv_info",
 ];
 
@@ -185,7 +189,7 @@ const MODEL: &[&str] = &[
 /// other network-reaching commands are the person's alone. An agent that wants a real site asks the person to add the
 /// location (Model > Add location), or imports terrain it already has as a file (`import_obj`, `terrain_from_contours`).
 const FILES: &[&str] = &[
-    "save", "open", "new", "export_obj", "export_glb", "export_fbx", "export_stl", "export_dae", "export_dxf", "export_pdf", "export_ifc", "import_obj", "import_skp", "import_cloud", "import_dxf", "import_fbx", "export_sheets", "sheet_render", "blueprint", "photoreal", "thumbnail", "insert_file", "save_to_library", "library_add", "library", "save_image",
+    "save", "open", "new", "export_obj", "export_glb", "export_fbx", "export_stl", "export_3mf", "export_cut_diagrams", "export_cut_labels", "export_cnc", "export_dae", "export_dxf", "export_pdf", "export_ifc", "import_obj", "import_skp", "import_cloud", "import_dxf", "import_fbx", "export_sheets", "sheet_render", "blueprint", "photoreal", "thumbnail", "insert_file", "save_to_library", "library_add", "library", "save_image",
 ];
 
 /// Commands only an agent may add to `MODEL`. `undo`/`redo` are not a plugin's: a plugin run is already one undo step
@@ -419,6 +423,26 @@ fn reject_side_name(p: &Path) -> Result<(), String> {
     }
 }
 
+/// Most edges one `spline` or `bezier` from a plugin or an agent may make. Points are capped, but each span is cut into
+/// many pieces, so the edges are what costs.
+pub const MAX_CURVE_EDGES_UNTRUSTED: usize = 2_000;
+
+/// `spline` and `bezier`: for plugins and agents, count the edges the curve would make (pieces per span times spans).
+fn curve_limits(caller: &Caller, name: &str, cmd: &Value) -> Result<(), String> {
+    if !matches!(name, "spline" | "bezier") || matches!(caller, Caller::Ui) {
+        return Ok(());
+    }
+    let n = cmd.get("points").and_then(Value::as_array).map_or(0, Vec::len);
+    let closed = cmd.get("closed").and_then(Value::as_bool).unwrap_or(false);
+    let (spans, default_k) = if name == "spline" { (if closed { n } else { n.saturating_sub(1) }, 12) } else { (n.saturating_sub(1) / 3, 16) };
+    let k = cmd.get("segments").and_then(Value::as_f64).map_or(default_k, |s| if s.is_finite() { s.clamp(1.0, crate::curves::MAX_SPAN_SEGMENTS as f64) as usize } else { default_k });
+    let edges = spans.saturating_mul(k);
+    if edges > MAX_CURVE_EDGES_UNTRUSTED {
+        return Err(format!("that curve would have {edges} edges; \"{name}\" from a plugin or an agent may make at most {MAX_CURVE_EDGES_UNTRUSTED} (use fewer points or segments)"));
+    }
+    Ok(())
+}
+
 /// The sheet commands' own limits: pages (a model's sheets, and the pages one command describes) and the items one
 /// command from a plugin or an agent carries. `walk` has already bounded every list; these are the tighter, named ones.
 fn sheet_limits(caller: &Caller, name: &str, cmd: &Value) -> Result<(), String> {
@@ -501,6 +525,11 @@ pub fn vet(caller: &Caller, cmd: &mut Value) -> Result<(), String> {
     let data_max = if matches!(caller, Caller::Ui) { MAX_DATA_UI } else { MAX_DATA_UNTRUSTED };
     walk(cmd, &name, &mut Walk { data_max, trusted: matches!(caller, Caller::Ui), values: 0 }, 0, "")?;
     sheet_limits(caller, &name, cmd)?;
+    curve_limits(caller, &name, cmd)?;
+    // a folder of CNC files is the person's to choose: an agent writes one .zip in its workspace
+    if name == "export_cnc" && !matches!(caller, Caller::Ui) && cmd.get("dir").is_some_and(|d| !d.is_null()) {
+        return Err("\"export_cnc\" writes one .zip (path) for agents and plugins; a folder (dir) is the person's".into());
+    }
     if matches!(caller, Caller::Plugin) {
         if let Some(o) = cmd.as_object() {
             if let Some(k) = o.keys().find(|k| PATH_KEYS.contains(&k.as_str()) || *k == "paths") {
@@ -693,15 +722,16 @@ mod tests {
         for c in MODEL {
             assert!(seen.insert(*c), "{c} is in MODEL twice");
         }
-        let expected = "arc array assets begin_group bevel cage_edit circle classify clear_guides close cloud cloud_data column component_cuts \
-            component_face_me components connected copy delete delete_view dimension dimension_auto divide door_swing drafting_status drape \
-            duplicate edge_style edit end_group environment explode explode_curve faces finish flip flip_edge follow_me group guide \
+        let expected = "arc array assets begin_group bevel bezier cage_edit check_solid circle classify clear_guides close cloud cloud_data column component_cuts \
+            component_face_me components connected copy cut_plan cut_stock dado delete delete_view dimension dimension_auto divide door_swing drafting_status drape \
+            duplicate edge_style edit end_group environment explode explode_curve faces finish fix_model flatten flip flip_edge floorplan_build follow_me group guide \
             hatch_pattern hatch_patterns hide info insert intersect layout_preset levels line lock make_component make_unique match_photo \
-            material move offset opacity options orient_faces paint parts photo_solve pick place polygon project_photo purge push_pull \
-            pushpull raise_walls rect rename rename_tag render report resize reverse roof room_preview room_rect rooms rotate same_as \
+            material lay_out_parts make_faces move offset opacity options orient_faces paint parts parts_layout photo_solve pick place polygon print_check project_photo purge \
+            push_pull rabbet tenon \
+            pushpull raise_walls rect rename rename_tag render report resize reverse roof room_preview room_rect rooms rotate same_as room_info \
             save_view scale section section_edit section_off section_plane set_attrs set_axes set_parent sheet_add sheet_delete sheet_dim \
             sheet_duplicate sheet_edit sheet_extend sheet_ir sheet_item_delete sheet_line sheet_offset sheet_order sheet_reattach \
-            sheet_table sheet_table_paste sheet_text sheet_trim sheets sheets_info show_view slice smoove soften solid stairs stamp subd \
+            sheet_table sheet_table_paste sheet_text sheet_trim sheets sheets_info show_view slice smoove soften solid spline stairs stamp subd \
             subdivide sun tag tag_color tag_style tag_visible terrain_from_contours terrain_grid text text3d text_3d texture texture_frame \
             texture_paint_new texture_paint_status texture_paint_stroke texture_pixels texture_position texture_project texture_uv \
             timeline timeline_frames ungroup unhide units uv_info uv_lightmap uv_pack uv_seam uv_set uv_transform uv_unwrap vertex_colors \

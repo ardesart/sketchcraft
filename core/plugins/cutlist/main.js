@@ -6,10 +6,37 @@
 // 40 mm thick and at least 100 mm wide are sheet goods, packed onto 4×8 ft
 // sheets; the rest are boards, packed onto 8 ft lengths. Both allow a 3 mm saw
 // kerf. Rough guides for buying, not a cutting plan.
+//
+// A board whose cross-section is real dimensional lumber (a 2×4 is 1½" × 3½",
+// a 1×6 is ¾" × 5½") is called by its name, and boards get board feet: the
+// lumber yard's measure, by the nominal size for dimensional lumber (a 2×4
+// 8 ft long is 5.33 bd ft) and by the actual size for everything else.
 
 const SHEET = [2.44, 1.22]; // 4 × 8 ft, in meters
 const BOARD = 2.44; // 8 ft
 const KERF = 0.003;
+const INCH = 0.0254;
+
+// dimensional lumber: nominal [thickness, width] in inches -> actual inches
+const NOMINAL_T = { 1: 0.75, 2: 1.5, 4: 3.5, 6: 5.5 };
+const NOMINAL_W = { 2: 1.5, 3: 2.5, 4: 3.5, 6: 5.5, 8: 7.25, 10: 9.25, 12: 11.25 };
+const LUMBER = [];
+for (const [t, at] of Object.entries(NOMINAL_T))
+  for (const [w, aw] of Object.entries(NOMINAL_W)) if (+w >= +t) LUMBER.push({ name: `${t}×${w}`, nominal: [+t, +w], actual: [at, aw] });
+
+/** The lumber name for a thickness × width in meters ("2×4"), or null. Within 1.5 mm, either way round. */
+function lumberName(thick, wide) {
+  const [a, b] = [Math.min(thick, wide), Math.max(thick, wide)].map((m) => m / INCH);
+  const hit = LUMBER.find((l) => Math.abs(l.actual[0] - a) * INCH <= 0.0015 && Math.abs(l.actual[1] - b) * INCH <= 0.0015);
+  return hit ?? null;
+}
+
+/** Board feet of one part [length, width, thickness] in meters: nominal for dimensional lumber, else actual. */
+function boardFeet(size) {
+  const lumber = lumberName(size[2], size[1]);
+  const [t, w] = lumber ? lumber.nominal : [size[2] / INCH, size[1] / INCH];
+  return (t * w * (size[0] / INCH)) / 144;
+}
 
 sketchcraft.command("cut-list", async (ctx) => {
   const sel = ctx.selection;
@@ -33,10 +60,11 @@ sketchcraft.command("cut-list", async (ctx) => {
     lines.set(key, l);
   }
   const all = [...lines.values()].sort((a, b) => b.size[0] - a.size[0]);
-  const rows = all.map((l) => [[...l.names].join(", "), l.qty, fmt(l.size[0]), fmt(l.size[1]), fmt(l.size[2]), l.material ?? ""]);
-
   // sheet goods and boards
   const isSheet = (s) => s[2] <= 0.04 && s[1] >= 0.1;
+  const stock = (s) => (isSheet(s) ? "" : lumberName(s[2], s[1])?.name ?? "");
+  const bf = (l) => (isSheet(l.size) ? null : boardFeet(l.size) * l.qty);
+  const rows = all.map((l) => [[...l.names].join(", "), l.qty, fmt(l.size[0]), fmt(l.size[1]), fmt(l.size[2]), stock(l.size), bf(l) == null ? "" : bf(l).toFixed(2), l.material ?? ""]);
   const notes = [];
   const sheetGroups = groupBy(all.filter((l) => isSheet(l.size)), (l) => `${fmt(l.size[2])} ${l.material ?? ""}`.trim());
   for (const [what, ls] of sheetGroups) {
@@ -44,17 +72,20 @@ sketchcraft.command("cut-list", async (ctx) => {
     const n = packSheets(pieces);
     notes.push(`${n} sheet${n === 1 ? "" : "s"} of ${what} (4×8 ft)${pieces.some(([a, b]) => !fits(a, b)) ? ", and some parts are bigger than a sheet" : ""}`);
   }
-  const boardGroups = groupBy(all.filter((l) => !isSheet(l.size)), (l) => `${fmt(l.size[2])} × ${fmt(l.size[1])} ${l.material ?? ""}`.trim());
+  const boardGroups = groupBy(all.filter((l) => !isSheet(l.size)), (l) => `${stock(l.size) || `${fmt(l.size[2])} × ${fmt(l.size[1])}`} ${l.material ?? ""}`.trim());
   for (const [what, ls] of boardGroups) {
     const lengths = ls.flatMap((l) => Array(l.qty).fill(l.size[0]));
     const n = packBoards(lengths);
     notes.push(`${n} board${n === 1 ? "" : "s"} of ${what}, 8 ft long${lengths.some((x) => x > BOARD) ? " (some parts are longer than 8 ft)" : ""}`);
   }
 
+  const totalBf = all.reduce((sum, l) => sum + (bf(l) ?? 0), 0);
+  if (totalBf > 0) notes.push(`${totalBf.toFixed(1)} board feet in the boards' parts (nominal sizes for dimensional lumber)`);
+
   ctx.show({
     title: `Cut list: ${parts.length} part${parts.length === 1 ? "" : "s"}`,
     text: `To buy, roughly (3 mm saw kerf):\n${notes.map((n) => `• ${n}`).join("\n")}`,
-    table: { columns: ["Part", "Qty", "Length", "Width", "Thickness", "Material"], rows },
+    table: { columns: ["Part", "Qty", "Length", "Width", "Thickness", "Stock", "Board ft", "Material"], rows },
   });
 });
 

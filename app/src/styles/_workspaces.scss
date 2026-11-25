@@ -3,103 +3,126 @@
 
 /* ---------- workspaces: panels on/off, toolbar docked left ---------- */
 
-.app.no-left {
-  grid-template-columns: 0 1fr 272px;
-}
-
-.app.no-right {
-  grid-template-columns: 248px 1fr 0;
-}
-
-.app.no-left.no-right {
-  grid-template-columns: 0 1fr 0;
-}
-
-.app.no-left .panel.left,
-.app.no-right .panel.right {
-  display: none;
-}
-
-.app.panels-right {
-  grid-template-columns: minmax(0, 1fr) clamp(185px, 24vw, 288px);
-  grid-template-rows: 52px minmax(0, 3fr) minmax(0, 2fr);
-}
-
-.app.panels-right.no-left.no-right {
-  grid-template-columns: minmax(0, 1fr) 0;
-}
-
-.app.panels-right .stage {
-  grid-column: 1;
-  grid-row: 2 / -1;
-}
-
-.app.panels-right .panel.left,
-.app.panels-right .panel.right {
-  grid-column: 2;
-  min-height: 0;
-}
-
-.app.panels-right .panel.left {
-  grid-row: 2;
-  border-right: 0;
-  border-left: 1px solid var(--line);
-}
-
-.app.panels-right .panel.right {
-  grid-row: 3;
-  border-top: 1px solid var(--line);
-}
-
-.app.panels-right.no-right .panel.left,
-.app.panels-right.no-left .panel.right {
-  grid-row: 2 / -1;
-  border-top: 0;
-}
-
-/* docked down the left: one column, or two side by side like Photoshop's (the Toolbar picks
-   --tool-cols from the window's height). Each group is a grid of that many columns, so the bar is
-   exactly as wide as its tools and every button sits on its background (a wrapping column flexbox
-   doesn't widen for the columns it wraps into). */
-.app.dock-left .toolbar {
-  left: 14px;
-  top: 14px;
-  bottom: auto;
-  transform: none;
-  flex-direction: column;
-  flex-wrap: nowrap;
-  align-items: stretch;
-  width: max-content;
-  max-height: calc(100% - 28px);
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  scrollbar-width: none;
-}
-
-.app.dock-left .tool-group {
-  display: grid;
-  grid-template-columns: repeat(var(--tool-cols, 1), max-content);
-  justify-content: center;
-  gap: 1px;
-  padding: 4px 0;
-  border-right: none;
-  border-bottom: 1px solid var(--line);
-
-  &:last-of-type {
-    border-bottom: none;
+.app {
+  &.no-left {
+    grid-template-columns: 0 1fr 272px;
   }
-}
 
-.app.dock-left .chip {
-  align-self: center;
-  margin: 6px 0 2px;
-}
+  &.no-right {
+    grid-template-columns: 248px 1fr 0;
+  }
 
-.app.dock-left .coach {
-  left: auto;
-  right: 14px;
-  /* the gizmo (104px) sits in the corner under the view bar; the hint card goes under it */
-  top: calc(var(--below-views, 66px) + 112px);
+  &.no-left.no-right {
+    grid-template-columns: 0 1fr 0;
+  }
+
+  &.no-left .panel.left,
+  &.no-right .panel.right {
+    display: none;
+  }
+
+  /* Each area keeps its own column. Left to auto-placement, the 3D view moved into the left panel's
+     zero-width column whenever that panel was hidden, and the screen went blank under the menu bar. */
+  &:not(.panels-right) {
+    .panel.left {
+      grid-column: 1;
+      grid-row: 2;
+    }
+
+    .stage {
+      grid-column: 2;
+      grid-row: 2;
+    }
+
+    .panel.right {
+      grid-column: 3;
+      grid-row: 2;
+    }
+  }
+
+  &.panels-right {
+    grid-template-columns: minmax(0, 1fr) clamp(185px, 24vw, 288px);
+    grid-template-rows: 52px minmax(0, 3fr) minmax(0, 2fr);
+
+    &.no-left.no-right {
+      grid-template-columns: minmax(0, 1fr) 0;
+    }
+
+    .stage {
+      grid-column: 1;
+      grid-row: 2 / -1;
+    }
+
+    .panel.left,
+    .panel.right {
+      grid-column: 2;
+      min-height: 0;
+    }
+
+    .panel.left {
+      grid-row: 2;
+      border-right: 0;
+      border-left: 1px solid var(--line);
+    }
+
+    .panel.right {
+      grid-row: 3;
+      border-top: 1px solid var(--line);
+    }
+
+    &.no-right .panel.left,
+    &.no-left .panel.right {
+      grid-row: 2 / -1;
+      border-top: 0;
+    }
+  }
+
+  /* docked down the left: one column, or two side by side like Photoshop's (the Toolbar picks
+     --tool-cols from the window's height). Each group is a grid of that many columns, so the bar is
+     exactly as wide as its tools and every button sits on its background (a wrapping column flexbox
+     doesn't widen for the columns it wraps into). */
+  &.dock-left {
+    .toolbar {
+      left: 14px;
+      top: 14px;
+      bottom: auto;
+      transform: none;
+      flex-direction: column;
+      flex-wrap: nowrap;
+      align-items: stretch;
+      width: max-content;
+      max-height: calc(100% - 28px);
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      scrollbar-width: none;
+    }
+
+    .tool-group {
+      display: grid;
+      grid-template-columns: repeat(var(--tool-cols, 1), max-content);
+      justify-content: center;
+      gap: 1px;
+      padding: 4px 0;
+      border-right: none;
+      border-bottom: 1px solid var(--line);
+
+      &:last-of-type {
+        border-bottom: none;
+      }
+    }
+
+    .chip {
+      align-self: center;
+      margin: 6px 0 2px;
+    }
+
+    .coach {
+      left: auto;
+      right: 14px;
+      /* the gizmo (104px) sits in the corner under the view bar; the hint card goes under it */
+      top: calc(var(--below-views, 66px) + 112px);
+    }
+  }
 }
 
 .ws-switch {
@@ -150,18 +173,18 @@
   border: 1px solid var(--line);
   box-shadow: var(--shadow);
   white-space: nowrap;
-}
 
-.app.dock-left .ws-strip {
-  bottom: 18px;
-  /* between the tool bar (left) and the Value box (right), centered there, never over either; the tool
-     bar is 27px + 35px a column from the left */
-  left: max(170px, calc(41px + var(--tool-cols, 1) * 35px));
-  right: 230px;
-  width: fit-content;
-  margin: 0 auto;
-  max-width: calc(100% - 400px);
-  transform: none;
+  .app.dock-left & {
+    bottom: 18px;
+    /* between the tool bar (left) and the Value box (right), centered there, never over either; the tool
+       bar is 27px + 35px a column from the left */
+    left: max(170px, calc(41px + var(--tool-cols, 1) * 35px));
+    right: 230px;
+    width: fit-content;
+    margin: 0 auto;
+    max-width: calc(100% - 400px);
+    transform: none;
+  }
 }
 
 /* the view bar stays clear of the tool bar down the left */
@@ -169,66 +192,72 @@
   max-width: calc(100% - max(170px, calc(55px + var(--tool-cols, 1) * 35px)));
 }
 
-.ws-strip .lbl {
-  padding: 0 6px 0 4px;
-  color: var(--faint);
-  font-size: $font-xs;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.ws-strip button {
-  height: 26px;
-  padding: 0 10px;
-  border-radius: var(--radius);
-  color: var(--text);
-  font-size: $font-m;
-
-  &:hover:not(:disabled) {
-    background: var(--bg);
-  }
-
-  &.on {
-    @include accent-on;
-  }
-
-  &:disabled {
+.ws-strip {
+  .lbl {
+    padding: 0 6px 0 4px;
     color: var(--faint);
+    font-size: $font-xs;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
   }
-}
 
-.ws-strip .hint {
-  padding: 0 8px;
-  color: var(--muted);
-  font-size: $font-m;
-}
+  button {
+    height: 26px;
+    padding: 0 10px;
+    border-radius: var(--radius);
+    color: var(--text);
+    font-size: $font-m;
 
-.ws-strip .sep {
-  width: 1px;
-  height: 18px;
-  margin: 0 4px;
-  background: var(--line);
+    &:hover:not(:disabled) {
+      background: var(--bg);
+    }
+
+    &.on {
+      @include accent-on;
+    }
+
+    &:disabled {
+      color: var(--faint);
+    }
+  }
+
+  .hint {
+    padding: 0 8px;
+    color: var(--muted);
+    font-size: $font-m;
+  }
+
+  .sep {
+    width: 1px;
+    height: 18px;
+    margin: 0 4px;
+    background: var(--line);
+  }
 }
 
 /* ---------- Vertical layout: one sidebar, Properties is its fourth tab ---------- */
 
 /* the tab's content (Document, Style, Paint, Finish, Entity info) takes the sidebar's whole height */
-.panel.left .inspector-body {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
+.panel.left {
+  .inspector-body {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
 }
 
-.tabs button .tab-dot {
-  display: inline-block;
-  width: 6px;
-  height: 6px;
-  margin-left: 6px;
-  border-radius: 50%;
-  background: var(--accent);
-  vertical-align: middle;
+.tabs button {
+  .tab-dot {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    margin-left: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    vertical-align: middle;
+  }
 }
 
 .panel.left .inspector-body > * {
@@ -246,5 +275,92 @@
     padding: 8px 8px 9px;
     white-space: nowrap;
     flex: none;
+  }
+}
+
+/* ---------- A phone held upright: the 3D view on top, the panels under it ---------- */
+
+/* 248 + 272 px of panels beside the view leave a 412 px-wide phone nothing to draw in, so on a narrow
+   touch screen the view takes the top three fifths and the panels share the rest (side by side, or one
+   across the width). Touch only: a narrow desktop window keeps its columns. */
+@media (max-width: 639px) and (pointer: coarse) {
+  .app,
+  .app.no-left,
+  .app.no-right,
+  .app.panels-right {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-rows: 52px minmax(0, 3fr) minmax(0, 2fr);
+  }
+
+  .app.no-left.no-right,
+  .app.panels-right.no-left.no-right {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: 52px minmax(0, 1fr);
+  }
+
+  .app:not(.panels-right),
+  .app.panels-right {
+    .stage {
+      grid-column: 1 / -1;
+      grid-row: 2;
+    }
+
+    .panel.left,
+    .panel.right {
+      grid-row: 3;
+      min-height: 0;
+      border-left: 0;
+      border-top: 1px solid var(--line);
+    }
+
+    .panel.left {
+      grid-column: 1;
+      border-right: 1px solid var(--line);
+    }
+
+    .panel.right {
+      grid-column: 2;
+    }
+
+    &.no-left .panel.right,
+    &.no-right .panel.left {
+      grid-column: 1 / -1;
+      grid-row: 3;
+      border-right: 0;
+    }
+  }
+}
+
+/* the Objects / Properties switches at the bottom left of the view (phones held upright only) */
+.panel-toggles {
+  display: none;
+}
+
+@media (max-width: 639px) and (pointer: coarse) {
+  .panel-toggles {
+    position: absolute;
+    left: 10px;
+    bottom: 10px;
+    z-index: 6;
+    display: flex;
+    gap: 2px;
+    padding: 3px;
+    border-radius: calc(var(--radius) + 2px);
+    background: var(--glass);
+    border: 1px solid var(--line);
+    box-shadow: var(--shadow);
+
+    button {
+      height: 32px;
+      padding: 0 12px;
+      border-radius: var(--radius);
+      color: var(--muted);
+      font-size: $font-m;
+      font-weight: 560;
+
+      &.on {
+        @include accent-on;
+      }
+    }
   }
 }

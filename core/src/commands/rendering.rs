@@ -8,7 +8,9 @@ impl Engine {
         let m: &mut Model = active_model!(self);
         Ok(match cmd {
             Command::Photoreal { out, samples, bounces, mut sun_azimuth, mut sun_altitude, sun_strength, denoise, exposure, sky_strength, background, ground, ground_color, warmth, date, time, utc_offset, progressive, opts } => {
-                let model = &self.model;
+                // laid out, the photoreal picture shows what the view shows (an owned copy: `self.pt` changes below)
+                let laid = self.laid_out_view().map(|v| v.model);
+                let model: &Model = laid.as_ref().unwrap_or(&self.model);
                 let mut sun_note = None;
                 if date.is_some() || time.is_some() {
                     let s = sun_at(model, date.as_deref(), time.as_deref(), utc_offset)?;
@@ -53,7 +55,8 @@ impl Engine {
                 let mut spp = po.samples;
                 let img = if progressive {
                     // same picture as last time? keep adding to it
-                    let key = format!("{}|{:?}|{:?}|{}|{}|{}|{}|{}", self.revision, po.camera.eye, po.camera.target, po.camera.fov, po.width, po.height, po.sun, po.bounces) + &format!("|{}|{}|{}|{:?}|{}|{:?}|{}", po.sun_strength, po.exposure, po.sky_strength, po.background, po.ground, po.ground_color, po.warmth);
+                    // switching to or from the laid-out parts changes the picture, though not the model
+                    let key = format!("{}{}|{:?}|{:?}|{}|{}|{}|{}|{}", self.revision, self.laid_out.as_ref().map(|r| format!("L{:?}{:?}", r.ids, r.gap)).unwrap_or_default(), po.camera.eye, po.camera.target, po.camera.fov, po.width, po.height, po.sun, po.bounces) + &format!("|{}|{}|{}|{:?}|{}|{:?}|{}", po.sun_strength, po.exposure, po.sky_strength, po.background, po.ground, po.ground_color, po.warmth);
                     let (p, img) = crate::pt::progressive(self.pt.take(), key, model, &po);
                     spp = p.spp;
                     self.pt = Some(p);
@@ -77,7 +80,9 @@ impl Engine {
                 json!({"out": out, "data": data, "seconds": secs, "spp": spp, "sun": sun_note, "camera": {"eye": camera.eye, "target": camera.target, "fov": camera.fov}})
             }
             Command::Render { out, opts } => {
-                let whole = &self.model;
+                // laid out, a render shows what the view shows
+                let shown = self.shown_model();
+                let whole: &Model = &shown;
                 let cam = render::camera_for(whole, &opts);
                 if let Some(path) = &out {
                     if let Some(dir) = std::path::Path::new(path).parent() {

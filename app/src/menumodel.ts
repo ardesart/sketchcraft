@@ -6,6 +6,7 @@
 // ("file.save", "tool:line", "view.xray"), so the key shown beside the item is whatever the person has set.
 
 import { WORKSPACES } from "./workspace";
+import { LANGUAGE_IDS, LANGUAGE_TABLE } from "./languages";
 
 /** one item of a menu */
 export type MenuItem =
@@ -34,6 +35,7 @@ export const EXPORT_FORMATS: [string, string][] = [
   ["fbx", "FBX (.fbx)…"],
   ["obj", "OBJ…"],
   ["stl", "STL (mm)…"],
+  ["3mf", "3MF (mm)…"],
   ["dae", "Collada (.dae)…"],
   ["dxf", "3D DXF (mm)…"],
   ["dwg", "DWG (AutoCAD)…"],
@@ -43,7 +45,7 @@ export const EXPORT_FORMATS: [string, string][] = [
 export const FACE_STYLES = ["textured", "physical", "shaded", "monochrome", "hiddenline", "wireframe"] as const;
 export const BACKGROUNDS = ["default", "paper", "blueprint", "night"] as const;
 export const LAYOUTS = ["floating", "classic", "side"] as const;
-export const LANGUAGES = ["system", "en", "it"] as const;
+export const LANGUAGES = ["system", ...LANGUAGE_IDS] as const;
 
 export const MENUS: Menu[] = [
   {
@@ -132,6 +134,7 @@ export const MENUS: Menu[] = [
       act("view.notes", "menu.notes", "check"),
       act("view.coach", "menu.coach", "check"),
       act("view.hiderest", "menu.hideRest", "check"),
+      act("view.laidout", "menu.layOutParts", "check"),
       SEP,
       act("view.plan", "menu.plan"),
       act("view.section.clear", "menu.clearSection"),
@@ -142,7 +145,7 @@ export const MENUS: Menu[] = [
       act("view.customize", "menu.customizeWs"),
       SEP,
       act("win.themes", "menu.themes"),
-      { label: "language.label", items: LANGUAGES.map((l): MenuItem => (l === "system" ? act("lang.system", "language.system", "radio") : { id: `lang.${l}`, text: l === "en" ? "English" : "Italiano", kind: "radio" })) },
+      { label: "language.label", items: LANGUAGES.map((l): MenuItem => (l === "system" ? act("lang.system", "language.system", "radio") : { id: `lang.${l}`, text: LANGUAGE_TABLE[l].name, kind: "radio" })) },
     ],
   },
   {
@@ -173,6 +176,7 @@ export const MENUS: Menu[] = [
     items: [
       tool("line"),
       tool("freehand"),
+      tool("spline"),
       SEP,
       tool("arc", "menu.tool.arc"),
       tool("arccenter", "menu.tool.arccenter"),
@@ -214,8 +218,18 @@ export const MENUS: Menu[] = [
       act("tools.projecttexture", "menu.projectTexture"),
       act("tools.positiontexture", "menu.positionTexture"),
       act("tools.uveditor", "menu.uvEditor"),
+      act("tools.photocraft", "menu.photocraft"),
       tool("erase"),
       tool("section"),
+      SEP,
+      act("tools.fixmodel", "menu.fixModel"),
+      act("tools.checkmodel", "menu.checkModel"),
+      act("tools.printcheck", "menu.printCheck"),
+      act("tools.cutplan", "menu.cutPlan"),
+      { label: "menu.joinery", items: [act("tools.dado", "menu.dado"), act("tools.rabbet", "menu.rabbet"), act("tools.tenon", "menu.tenon")] },
+      SEP,
+      act("tools.makefaces", "menu.makeFaces"),
+      act("tools.flatten", "menu.flatten"),
     ],
   },
   {

@@ -16,11 +16,12 @@ guess today.
 | **0.3.7** | Safety & polish | Older versions can't damage newer files, a Subdivide button, a contributor's Trim fix and Vertical layout, and the full test suite in CI |
 | **0.3.8** | Drafting | LayOut-class drawings: line weights, hatches and cut fills per tag, dimensions that stay attached, big documents that stay fast |
 | **0.3.9** | Texturing | A blocky beaver to paint, then put textures exactly where you want them, unwrap UVs, paint vertices, export to game engines |
-| **0.3.10** | Makers | Fix a model in one click, check it for 3D printing, cut lists with diagrams and CNC files |
+| **0.3.10** | Compatibility | Coming from SketchUp made easy: textures in 2017–2020 imports, an import report, saving to older SketchUp versions, your old extensions |
 | **0.4.0** | No extension tax | The add-ons people pay for most, built in: round corners, loft, thicken, bend, parametric railings and stairs |
-| **0.4.1** | Big models | Every CPU core, lighter imports, smooth orbiting on huge sites |
-| **0.4.2** | Switchers & your own AI | Coming from SketchUp made easy, your old extensions, and AI without credits |
-| **0.4.3** | Rendering | Clean, fast renders on the GPU with HDRI lighting, no paid plugin |
+| **0.4.1** | Makers | Fix a model in one click, check it for 3D printing, cut lists with diagrams and CNC files |
+| **0.4.2** | Big models | Every CPU core, lighter imports, smooth orbiting on huge sites |
+| **0.4.3** | Your own AI | AI without credits, and an open asset library |
+| **0.4.4** | Rendering | Clean, fast renders on the GPU with HDRI lighting, no paid plugin |
 | **Later** | Phone and tablet | A touch-first SketchCraft for Android and iOS, last on the list and not planned out yet |
 
 ## 0.3.7: Safety & polish
@@ -62,13 +63,13 @@ complaint about LayOut is that it's slow and loses your dimensions. So:
 Also in 0.3.9: **Wall pull**, **Room mode** (draw rooms, combine and subtract them), a **menu bar**, a
 **fixtures and furniture** pack, the **Properties** tab, and **Italian** (thanks, Kad26).
 
-## 0.3.10: Makers
+## 0.3.10: Compatibility
 
-1. **Fix model**: holes, stray edges, internal faces, reversed faces, merged coplanar faces, in one undoable step
-2. **3D printing check** and **3MF export**
-3. **Woodworker pack**: cutting diagrams, labels, cost, CNC parts, joinery helpers
-4. **Small tools**: Bezier curves, make faces, flatten to a height
-5. **Textures in SketchUp 2017–2020 imports** (moved from 0.3.9)
+1. **Textures in SketchUp 2017–2020 imports** (moved from 0.3.9)
+2. **A SketchUp import report**: what came in and what didn't
+3. **Save as older SketchUp versions** (researching)
+4. **Run the top free SketchUp extensions**, with a compatibility table
+5. **Coming from SketchUp Make 2017** guide
 
 ## 0.4.0: No extension tax
 
@@ -78,7 +79,14 @@ Also in 0.3.9: **Wall pull**, **Room mode** (draw rooms, combine and subtract th
 4. **Bend, taper and twist**
 5. **Parametric profiles, railings and stairs** that remember their settings
 
-## 0.4.1: Big models
+## 0.4.1: Makers
+
+1. **Fix model**: holes, stray edges, internal faces, reversed faces, merged coplanar faces, in one undoable step
+2. **3D printing check** and **3MF export**
+3. **Woodworker pack**: cutting diagrams, labels, cost, CNC parts, joinery helpers
+4. **Small tools**: Bezier curves, make faces, flatten to a height
+
+## 0.4.2: Big models
 
 1. **Multithreaded** booleans, imports, scene building and exports
 2. **Decimate heavy imports**
@@ -86,16 +94,12 @@ Also in 0.3.9: **Wall pull**, **Room mode** (draw rooms, combine and subtract th
 4. **Incremental viewport updates**
 5. **A public benchmark**, run on every release
 
-## 0.4.2: Switchers & your own AI
+## 0.4.3: Your own AI
 
-1. **A SketchUp import report**: what came in and what didn't
-2. **Run the top free SketchUp extensions**, with a compatibility table
-3. **Save as older SketchUp versions** (researching)
-4. **Bring your own AI**: connect Claude, Cursor or a local model, no credits, with ready-made recipes
-5. **Coming from SketchUp Make 2017** guide
-6. **An open CC0 asset library**
+1. **Bring your own AI**: connect Claude, Cursor or a local model, no credits, with ready-made recipes
+2. **An open CC0 asset library**
 
-## 0.4.3: Rendering
+## 0.4.4: Rendering
 
 1. **AI denoiser**: clean renders in a fraction of the time
 2. **GPU path tracing**

@@ -10,8 +10,9 @@ SketchCraft isn't signed by Microsoft yet.
 **Is it free?** Yes, and open source (MIT license).
 
 **Does it open my SketchUp files?** Yes: SketchUp 6 to 8 and 2013 onward. It
-skips what it can't read (dimensions and text inside the file) rather than
-guess.
+skips what it can't read (text labels, radial dimensions and guide lines inside the
+file) rather than guess; the import says how many it left out. More in
+[Coming from SketchUp](11-from-sketchup.md).
 
 **DWG files won't open.** Install a DWG helper (LibreDWG or the ODA File
 Converter); see [Files](05-files.md). DXF works without one.

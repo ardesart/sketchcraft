@@ -1,0 +1,6 @@
+# @room is a closed room (group "Wall"), walls 0.2 m thick and 2.4 m high, centerline 6 m (x) by 4 m (y) from the origin. @door is a group named "door": a flat door panel 1 m wide, 2.1 m tall, 0.1 m thick on the south wall at x 2.5..3.5, y -0.05..0.05. South is -y, north is +y, west is -x, east is +x.
+{"cmd":"wall","points":[[0,0,0],[6,0,0],[6,4,0],[0,4,0]],"closed":true,"height":2.4,"as":"room"}
+{"cmd":"begin_group","name":"door","as":"door"}
+{"cmd":"rect","from":[2.5,-0.05,0],"to":[3.5,0.05,0],"as":"df"}
+{"cmd":"pushpull","face":"@df","distance":2.1}
+{"cmd":"end_group"}

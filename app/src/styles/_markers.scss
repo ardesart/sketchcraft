@@ -3,66 +3,68 @@
 
 /* inference marker colors */
 
-.snap-dot.endpoint {
-  background: $green;
-  border-color: $white;
-  box-shadow: 0 0 0 1.5px $green;
-}
-/* a point of a scan: an amber ring, so it reads as "on the cloud", not the model */
+.snap-dot {
+  &.endpoint {
+    background: $green;
+    border-color: $white;
+    box-shadow: 0 0 0 1.5px $green;
+  }
+  /* a point of a scan: an amber ring, so it reads as "on the cloud", not the model */
 
-.snap-dot.scan-point {
-  background: #f5a524;
-  border-color: $white;
-  box-shadow: 0 0 0 1.5px #b86e00;
-}
+  &.scan-point {
+    background: #f5a524;
+    border-color: $white;
+    box-shadow: 0 0 0 1.5px #b86e00;
+  }
 
-.snap-dot.midpoint {
-  background: $blue;
-  border-color: $white;
-  box-shadow: 0 0 0 1.5px $blue;
-}
+  &.midpoint {
+    background: $blue;
+    border-color: $white;
+    box-shadow: 0 0 0 1.5px $blue;
+  }
 
-.snap-dot.on-edge,
-.snap-dot.on-guide {
-  background: #e5484d;
-  border-color: $white;
-  box-shadow: 0 0 0 1.5px #e5484d;
-  border-radius: 2px;
-}
+  &.on-edge,
+  &.on-guide {
+    background: #e5484d;
+    border-color: $white;
+    box-shadow: 0 0 0 1.5px #e5484d;
+    border-radius: 2px;
+  }
 
-.snap-dot.axis {
-  @include size(7px);
-  background: #1d1e24;
-  border-color: $white;
-}
+  &.axis {
+    @include size(7px);
+    background: #1d1e24;
+    border-color: $white;
+  }
 
-.snap-dot.face {
-  background: #3e63dd;
-  border-color: $white;
-  box-shadow: 0 0 0 1.5px #3e63dd;
-  border-radius: 2px;
-  transform: rotate(45deg);
-}
+  &.face {
+    background: #3e63dd;
+    border-color: $white;
+    box-shadow: 0 0 0 1.5px #3e63dd;
+    border-radius: 2px;
+    transform: rotate(45deg);
+  }
 
-.snap-dot.guide-point {
-  background: $white;
-  border-color: #3e63dd;
-}
-/* the center of an arc or circle: a ring with a dot */
+  &.guide-point {
+    background: $white;
+    border-color: #3e63dd;
+  }
+  /* the center of an arc or circle: a ring with a dot */
 
-.snap-dot.center {
-  background: $green;
-  border: 2.5px solid $white;
-  box-shadow: 0 0 0 1.5px $green;
-  @include size(11px);
-}
-/* the model's origin: a yellow square, where the three axes meet */
+  &.center {
+    background: $green;
+    border: 2.5px solid $white;
+    box-shadow: 0 0 0 1.5px $green;
+    @include size(11px);
+  }
+  /* the model's origin: a yellow square, where the three axes meet */
 
-.snap-dot.origin {
-  background: #f5c400;
-  border-color: #1d1e24;
-  border-radius: 2px;
-  box-shadow: 0 0 0 1.5px $white;
+  &.origin {
+    background: #f5c400;
+    border-color: #1d1e24;
+    border-radius: 2px;
+    box-shadow: 0 0 0 1.5px $white;
+  }
 }
 
 .select-box {

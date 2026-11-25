@@ -1,0 +1,2 @@
+# @nwall is the north wall of a room as one flat vertical face in the plane y = 4, from x 0 (west end, the left end) to x 6 (east end) and z 0..2.4. South is -y, north is +y, west is -x, east is +x.
+{"cmd":"rect","from":[0,4,0],"to":[6,4,2.4],"as":"nwall"}

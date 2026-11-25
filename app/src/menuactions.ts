@@ -76,6 +76,9 @@ export interface MenuCtx {
   nextView: () => void;
   plan: () => void;
   clearSection: () => void;
+  /** the parts are laid out flat to look at (`lay_out_parts`), and the switch */
+  laidOut: boolean;
+  layOutParts: () => void;
   toggleStyle: (key: "shadows" | "xray" | "backEdges" | "edges" | "profiles" | "vertexColors" | "sketchy" | "ao" | "notes" | "help" | "hideRest") => void;
   setStyles: (patch: Partial<Styles>) => void;
   // panels, layout, language
@@ -86,7 +89,7 @@ export interface MenuCtx {
   setLayout: (l: Layout) => void;
   setLanguage: (l: string) => void;
   // dialogs and links
-  open: Record<"restore" | "render" | "sheets" | "layout" | "timeline" | "location" | "text3d" | "projection" | "positionTexture" | "uvEditor" | "newPaintTexture" | "plugins" | "themes" | "keys" | "keyEditor" | "palette" | "learn" | "about" | "customize", () => void>;
+  open: Record<"restore" | "render" | "sheets" | "layout" | "timeline" | "location" | "text3d" | "projection" | "positionTexture" | "uvEditor" | "newPaintTexture" | "photocraft" | "fixModel" | "checkModel" | "printCheck" | "cutPlan" | "dado" | "rabbet" | "tenon" | "makeFaces" | "flatten" | "plugins" | "themes" | "keys" | "keyEditor" | "palette" | "learn" | "about" | "customize", () => void>;
   checkForUpdates: () => void;
   openLink: (which: "issues") => void;
 }
@@ -159,6 +162,8 @@ export function buildMenuActions(c: MenuCtx): Record<string, MenuAction> {
   add("view.notes", () => c.toggleStyle("notes"), model, s.notes !== false);
   add("view.coach", () => c.toggleStyle("help"), model, s.help !== false);
   add("view.hiderest", () => c.toggleStyle("hideRest"), model && c.editing, !!s.hideRest);
+  // the whole model laid out: not while a group or component is open for editing
+  add("view.laidout", c.layOutParts, model && (c.laidOut || !c.editing), c.laidOut);
   add("view.plan", c.plan, model && !c.section);
   add("view.section.clear", c.clearSection, model && c.section);
   add("view.panel.left", () => c.togglePanel("left"), true, c.showLeft);
@@ -177,7 +182,7 @@ export function buildMenuActions(c: MenuCtx): Record<string, MenuAction> {
   add("view.parallel", () => c.setStyles({ parallel: true }), model, !!s.parallel);
 
   // every tool a menu offers (Draw, Tools, Camera)
-  for (const id of ["orbit", "pan", "zoom", "zoomwindow", "position", "lookaround", "walk", "line", "freehand", "arc", "arccenter", "arc3", "pie", "rect", "rrect", "circle", "polygon", "wall", "room", "select", "move", "rotate", "scale", "push", "wallpull", "followme", "offset", "tape", "dimension", "text", "paint", "vpaint", "tpaint", "erase", "section"] as const) {
+  for (const id of ["orbit", "pan", "zoom", "zoomwindow", "position", "lookaround", "walk", "line", "freehand", "spline", "arc", "arccenter", "arc3", "pie", "rect", "rrect", "circle", "polygon", "wall", "room", "select", "move", "rotate", "scale", "push", "wallpull", "followme", "offset", "tape", "dimension", "text", "paint", "vpaint", "tpaint", "erase", "section"] as const) {
     add(`tool:${id}`, () => c.tool(id), model);
   }
 
@@ -189,6 +194,22 @@ export function buildMenuActions(c: MenuCtx): Record<string, MenuAction> {
   add("tools.uveditor", c.open.uvEditor, model);
   // Texture paint: the tool's panel makes a paint texture for the selection; File > Export texture saves the picture
   add("tools.newpainttexture", c.open.newPaintTexture, model && has);
+  // Edit texture in PhotoCraft: the selection's picture, with its UV layout as a guide; saved there, it comes back
+  add("tools.photocraft", c.open.photocraft, model && has && c.desktop);
+  // Fix model and Check model: the engine repairs (or only reports on) the selection, or the whole model
+  add("tools.fixmodel", c.open.fixModel, model);
+  add("tools.checkmodel", c.open.checkModel, model);
+  // Print check: solid, thin walls, overhangs, size, with Fix model one click away
+  add("tools.printcheck", c.open.printCheck, model);
+  // Cut plan: the cut list packed onto sheets and boards, with prices, diagrams and labels
+  add("tools.cutplan", c.open.cutPlan, model);
+  // Joinery: a dado, rabbet or tenon between the two boards picked
+  add("tools.dado", c.open.dado, model);
+  add("tools.rabbet", c.open.rabbet, model);
+  add("tools.tenon", c.open.tenon, model);
+  // Make faces and Flatten to height: the engine closes loops of loose lines / moves the picked points to one height
+  add("tools.makefaces", c.open.makeFaces, model);
+  add("tools.flatten", c.open.flatten, model);
   add("file.exporttexture", c.file.exportTexture, model);
   add("win.uveditor", c.open.uvEditor, model);
 

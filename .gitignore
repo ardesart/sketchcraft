@@ -3,11 +3,15 @@ out/
 *.png
 !docs/*.png
 !brand/*.png
+!examples/*.png
 # also a node_modules symlink (a worktree sharing the main checkout's), which "node_modules/" would not match
 node_modules
 dist/
-app/src-tauri/gen/
+app/src-tauri/gen/*
+# the Android project is ours to edit (manifest, MainActivity, icons): tracked, minus its build output
+!app/src-tauri/gen/android/
 !app/src-tauri/icons/*.png
+!app/src-tauri/gen/android/app/src/main/res/mipmap-*/*.png
 # the visual regression suite's reference pictures (tools/ui-tests/visual.mjs)
 !tools/ui-tests/visual-references/*/*.png
 

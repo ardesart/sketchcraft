@@ -38,6 +38,8 @@ function stub(over: Partial<MenuCtx> = {}): { ctx: MenuCtx; calls: string[] } {
     nextView: rec("nextView"),
     plan: rec("plan"),
     clearSection: rec("clearSection"),
+    laidOut: false,
+    layOutParts: rec("layOutParts"),
     toggleStyle: rec("toggleStyle"),
     setStyles: rec("setStyles"),
     workspaceTo: rec("workspaceTo"),
@@ -144,6 +146,20 @@ describe("what is available", () => {
     for (const id of ["file.save", "help.about", "ws.model"]) expect(a[id].enabled, id).toBe(true);
   });
 
+  it("offers Lay out parts outside an open group, and ticks it while the parts are laid out", () => {
+    const editing = buildMenuActions(stub({ editing: true }).ctx);
+    expect(editing["view.laidout"].enabled).toBe(false);
+    const { ctx, calls } = stub({ editing: false });
+    const off = buildMenuActions(ctx);
+    expect(off["view.laidout"]).toMatchObject({ enabled: true, checked: false });
+    off["view.laidout"].run();
+    expect(calls).toEqual(["layOutParts()"]);
+    // laid out, the way back is always there
+    const on = buildMenuActions(stub({ editing: true, laidOut: true }).ctx);
+    expect(on["view.laidout"]).toMatchObject({ enabled: true, checked: true });
+    expect(buildMenuActions(stub({ laidOut: true, onPaper: true }).ctx)["view.laidout"].enabled).toBe(false);
+  });
+
   it("offers Section export, Remove section and Hide rest only when they apply", () => {
     const off = buildMenuActions(stub({ section: false, editing: false }).ctx);
     expect(off["file.export.section.svg"].enabled).toBe(false);
@@ -173,6 +189,14 @@ describe("what is available", () => {
     expect(a["view.perspective"].checked).toBe(false);
     expect(a["view.layout.side"].checked).toBe(true);
     expect(a["lang.it"].checked).toBe(true);
+    const zh = buildMenuActions(stub({ language: "zh" }).ctx);
+    expect(zh["lang.zh"].checked).toBe(true);
+    expect(zh["lang.it"].checked).toBe(false);
+    for (const lang of ["fr", "es", "de", "pt"] as const) {
+      const m = buildMenuActions(stub({ language: lang }).ctx);
+      expect(m[`lang.${lang}`].checked).toBe(true);
+      expect(m["lang.en"].checked).toBe(false);
+    }
     expect(a["view.panel.left"].checked).toBe(false);
     expect(a["view.panel.right"].checked).toBe(true);
     expect(a["view.xray"].checked).toBe(true);

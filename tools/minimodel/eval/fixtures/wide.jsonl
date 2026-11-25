@@ -1,0 +1,5 @@
+# @house is a group named "house", a box 4 m wide (x) by 3 m (y) by 2.4 m tall, corner at the origin. The last request was "a house 4 meters wide".
+{"cmd":"begin_group","name":"house","as":"house"}
+{"cmd":"rect","from":[0,0,0],"to":[4,3,0],"as":"f"}
+{"cmd":"pushpull","face":"@f","distance":2.4}
+{"cmd":"end_group"}

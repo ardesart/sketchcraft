@@ -1,0 +1,6 @@
+# @house is a group named "house", a 4 m (x) by 3 m (y) by 2.4 m box. The last thing done was: move the house 5 m east (it now sits at x 5..9, y 0..3, z 0..2.4). Undo takes back that move.
+{"cmd":"begin_group","name":"house","as":"house"}
+{"cmd":"rect","from":[0,0,0],"to":[4,3,0],"as":"f"}
+{"cmd":"pushpull","face":"@f","distance":2.4}
+{"cmd":"end_group"}
+{"cmd":"move","ids":["@house"],"by":[5,0,0]}

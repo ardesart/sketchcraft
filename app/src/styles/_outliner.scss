@@ -321,12 +321,12 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
-}
 
-.prio-row .grip {
-  cursor: grab;
-  padding: 0 2px;
-  user-select: none;
+  .grip {
+    cursor: grab;
+    padding: 0 2px;
+    user-select: none;
+  }
 }
 
 .prio-num {

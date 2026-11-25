@@ -1,9 +1,11 @@
 # SketchCraft brand
 
 The builder beaver: an engraved black-ink beaver with a carpenter's pencil in
-its orange teeth, on a violet tile. Beavers are nature's push/pull builders, and
-the pencil is the sketch in SketchCraft. The mark sits in the Craft family
-(engraved animals on saturated tiles).
+its orange teeth, on a violet tile. A beaver is an architect and a builder in
+one animal: it plans its lodge and its dam, then cuts the timber and raises the
+walls itself, like the people SketchCraft is for, who design a room, a house or
+a bookcase and then build it. The pencil is the sketch in SketchCraft. The mark
+sits alongside most of the Craft family (engraved animals on saturated tiles).
 
 ## Files
 

@@ -31,6 +31,60 @@ Select two solids (closed groups or components) and right-click: **Union**,
 **Intersect Faces**, **Flip Along**, **Soften** edges, and **Bevel** in the
 Design workspace.
 
+### Joinery (dado, rabbet, tenon)
+
+For woodworking, **Tools › Joinery** cuts a **Dado**, a **Rabbet** or a **Tenon
+and mortise** between two boards that touch: pick both boards, choose the joint,
+say which board is cut, and leave the sizes blank for sensible defaults. It is
+one Undo step. See [Cut plan](08-plugins.md#joinery) for what each one does.
+
+## Fix model (clean up and make solid)
+
+**Tools › Fix model** repairs a messy model in one step: it closes holes, turns reversed faces the right way round,
+joins flat faces that were split, and removes repeated faces, faces trapped inside a solid, fins hanging off shared
+edges and stray lines. Pick a group or some faces first to fix only those; pick nothing to fix the whole model
+(components too). The message says how many of each it did, and **Undo** takes the whole repair back in one go.
+**Tools › Check model** only reports what is wrong and changes nothing. Things it cannot settle by itself (a hole
+that is too big, an edge shared by three shapes, a flat sheet that is meant to be open) are listed as still wrong.
+Faces with different paint or pictures stay separate, and locked groups are left alone. Agents can run `fix_model`
+with `dry_run: true` to look first, and `check_solid` to list the problems with their places.
+
+## Make faces and Flatten to height (imported CAD linework)
+
+DWG and DXF drawings often arrive as lines with no faces: loops that do not quite close, or lines drawn at slightly
+different heights. Two commands on the **Tools** menu sort that out, and each is one Undo.
+
+**Flatten to height…** moves what you picked (lines, faces or groups) to one height. It asks for the height in the
+model's units, and 0 is the ground. Points that land on each other are joined, lines that collapse to nothing and
+repeated lines are removed, a wall seen from above (a face that collapses to a line) is removed, and faces that end up
+level face up. The toast says how many of each.
+
+**Make faces** closes every closed loop of loose lines with a face. It works on the lines or groups you picked, or on
+every loose line if nothing is picked. Lines that cross, or end on the middle of another line, are cut there first so
+they can form loops. A loop inside another loop becomes a hole in it, and the shape inside the hole gets a face of its
+own (as when you import a DXF); delete it if you want the hole open. Loops that are not flat are skipped and counted,
+and the toast says to flatten first. Lines that are not part of any closed loop are left alone. Loops are found
+within one group (a DXF layer), so a hole drawn on a different layer from its plate is not cut out of it.
+
+Typical use: import the drawing, select it, **Flatten to height…** `0`, then **Make faces**. Agents have both as
+`flatten {ids?, z}` and `make_faces {ids?, open_holes?}`.
+
+## Print check (ready for a slicer)
+
+**Tools › Print check…** looks at the selection (or the whole model) and says, in millimetres: whether it is a closed
+solid with no holes, whether any walls are thinner than a limit (0.8 mm to start with), which faces overhang past an
+angle (45° from vertical) and will need supports, how big it is, and whether that size looks like the wrong units (a
+model under 1 mm or over 3 m across). The two limits can be changed in the box. When the model is not solid, **Fix
+model** is one click away in the same box (the same repair as Tools › Fix model, one Undo step). **Select open edges**,
+**Select thin faces** and **Select overhangs** pick the problem spots so you can see them.
+
+Then **File › Export › 3MF (mm)…** (or STL) and open the file in your slicer. A 3MF carries its units, so the part
+comes in at its real size; each group and each placed component is its own object. If the model is not solid, the
+export still works but tells you to run the check first. Thin walls are measured straight through the surface, so a
+sloped wall reads thicker than it is across, and very thin slivers between sample points can be missed: treat the check
+as a safety net, and look at the slicer's preview before a long print. Agents can run `print_check` (read-only) and
+`export_3mf`.
+
 ## Curved and organic shapes
 
 ![Subdivision surfaces](../demos/subdivision.gif)

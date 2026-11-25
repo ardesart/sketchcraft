@@ -529,28 +529,91 @@ pub fn list() -> Value {
     json!({"dir": d, "plugins": out, "problems": problems})
 }
 
-/// A part: name, kind, material, and size as [length, width, thickness]
-/// (largest first), measured along its biggest face.
-pub fn parts(m: &Model, ids: &[Id]) -> Vec<Value> {
-    let wanted: Vec<Id> = if ids.is_empty() {
+/// A part as measured: what `parts` reports, and what laying it flat or drawing its cutting diagram needs.
+#[derive(Clone)]
+pub struct Measured {
+    pub id: Id,
+    pub name: String,
+    /// "group" or "component"
+    pub kind: &'static str,
+    pub material: Option<String>,
+    /// [length, width, thickness], largest first, to 0.1 mm
+    pub size: [f64; 3],
+    /// the corner its box starts from (world space): the part fills `origin + a·u + b·w + c·n` for a, b, c from 0 to `extent`
+    pub origin: DVec3,
+    /// which way it lies (world space, unit length): `n` is the normal of its biggest face; `u` runs along that
+    /// face's longest edge, or square to it when the part reaches further that way; `w` is n × u. For a board:
+    /// length, width and thickness.
+    pub u: DVec3,
+    pub w: DVec3,
+    pub n: DVec3,
+    /// how far it reaches along `u`, `w` and `n`
+    pub extent: DVec3,
+}
+
+/// Each part's size, where it is and which way it lies, measured along its biggest face: `ids` (groups or
+/// components), or every group with nothing grouped inside it and every component. This frame is the one answer
+/// to "which way does this part lie" (`parts`, `parts_layout`).
+pub fn measure(m: &Model, ids: &[Id]) -> Vec<Measured> {
+    measure_parts(m, wanted_parts(m, ids))
+}
+
+/// The parts `measure` looks at for `ids`: those ids, or every group with nothing grouped inside it and every component.
+/// (Cheap: no geometry is touched, so a caller can refuse a model with too many before measuring.)
+pub fn wanted_parts(m: &Model, ids: &[Id]) -> Vec<Id> {
+    if ids.is_empty() {
         // every group with nothing grouped inside it, and every component
-        let mut v: Vec<Id> = m.groups.iter().filter(|(id, g)| !g.hidden && !m.groups.values().any(|o| o.parent == Some(**id))).map(|(id, _)| *id).collect();
+        let parents: std::collections::HashSet<Id> = m.groups.values().filter_map(|g| g.parent).collect();
+        let mut v: Vec<Id> = m.groups.iter().filter(|(id, g)| !g.hidden && !parents.contains(*id)).map(|(id, _)| *id).collect();
         // components, but not scale figures (flat people aren't parts)
         v.extend(m.instances.iter().filter(|(_, i)| !i.hidden && !m.definitions.get(&i.def).is_some_and(|d| d.face_me)).map(|(id, _)| *id));
         v
     } else {
-        ids.to_vec()
-    };
+        // a part listed twice is one part
+        let mut seen = std::collections::HashSet::new();
+        ids.iter().copied().filter(|i| seen.insert(*i)).collect()
+    }
+}
+
+/// Measure these parts (see `measure`). The model's faces are sorted into their groups once, so the work grows with the
+/// model and not with the parts times the model.
+pub fn measure_parts(m: &Model, wanted: Vec<Id>) -> Vec<Measured> {
+    use std::collections::HashMap;
     let world = m.world_faces();
+    let mut kids: HashMap<Id, Vec<Id>> = HashMap::new();
+    for (&id, g) in &m.groups {
+        if let Some(p) = g.parent {
+            kids.entry(p).or_default().push(id);
+        }
+    }
+    let mut by_group: HashMap<Id, Vec<usize>> = HashMap::new();
+    let mut by_owner: HashMap<Id, Vec<usize>> = HashMap::new();
+    for (i, f) in world.iter().enumerate() {
+        by_owner.entry(f.owner).or_default().push(i);
+        if let Some(g) = f.face.and_then(|fid| m.faces.get(&fid)).and_then(|x| x.group) {
+            by_group.entry(g).or_default().push(i);
+        }
+    }
     wanted
         .into_iter()
         .filter_map(|id| {
             let (name, kind, faces): (String, &str, Vec<_>) = if let Some(g) = m.groups.get(&id) {
-                let tree = m.subtree(id);
-                let mine = |f: &&crate::components::WFace| f.face.and_then(|fid| m.faces.get(&fid)).and_then(|x| x.group).is_some_and(|x| tree.contains(&x));
-                (g.name.clone(), "group", world.iter().filter(mine).map(|f| (f.outer.clone(), f.normal, f.material.clone(), f.color)).collect())
+                // the group and every group nested in it, then its faces in the order the model lists them
+                let mut seen: std::collections::HashSet<Id> = std::collections::HashSet::from([id]);
+                let mut stack = vec![id];
+                let mut idx: Vec<usize> = Vec::new();
+                while let Some(x) = stack.pop() {
+                    idx.extend(by_group.get(&x).into_iter().flatten().copied());
+                    for &k in kids.get(&x).into_iter().flatten() {
+                        if seen.insert(k) {
+                            stack.push(k);
+                        }
+                    }
+                }
+                idx.sort_unstable();
+                (g.name.clone(), "group", idx.into_iter().map(|i| &world[i]).map(|f| (f.outer.clone(), f.normal, f.material.clone(), f.color)).collect())
             } else if let Some(i) = m.instances.get(&id) {
-                (i.name.clone(), "component", world.iter().filter(|f| f.owner == id).map(|f| (f.outer.clone(), f.normal, f.material.clone(), f.color)).collect())
+                (i.name.clone(), "component", by_owner.get(&id).into_iter().flatten().map(|&i| &world[i]).map(|f| (f.outer.clone(), f.normal, f.material.clone(), f.color)).collect())
             } else {
                 return None;
             };
@@ -565,7 +628,9 @@ pub fn parts(m: &Model, ids: &[Id]) -> Vec<Value> {
                 }
                 (s.dot(n) * 0.5).abs()
             };
-            let big = faces.iter().max_by(|a, b| area(&a.0, a.1).total_cmp(&area(&b.0, b.1)))?;
+            // a board has two faces that big: take the one that looks down most, so a part lying flat is already on it
+            let most = faces.iter().map(|f| area(&f.0, f.1)).fold(0.0, f64::max);
+            let big = faces.iter().filter(|f| area(&f.0, f.1) >= most * (1.0 - 1e-9)).min_by(|a, b| a.1.normalize_or_zero().z.total_cmp(&b.1.normalize_or_zero().z))?;
             let n = big.1.normalize_or_zero();
             let mut u = DVec3::ZERO;
             for k in 0..big.0.len() {
@@ -580,15 +645,29 @@ pub fn parts(m: &Model, ids: &[Id]) -> Vec<Value> {
             if u == DVec3::ZERO || w == DVec3::ZERO {
                 return None;
             }
-            let (mut lo, mut hi) = (DVec3::splat(f64::MAX), DVec3::splat(f64::MIN));
-            for (pts, ..) in &faces {
-                for p in pts {
-                    let q = DVec3::new(p.dot(u), p.dot(w), p.dot(n));
-                    lo = lo.min(q);
-                    hi = hi.max(q);
+            // how far the part reaches along `u`, `w` and `n`
+            let reach = |u: DVec3, w: DVec3| -> (DVec3, DVec3) {
+                let (mut lo, mut hi) = (DVec3::splat(f64::MAX), DVec3::splat(f64::MIN));
+                for (pts, ..) in &faces {
+                    for p in pts {
+                        let q = DVec3::new(p.dot(u), p.dot(w), p.dot(n));
+                        lo = lo.min(q);
+                        hi = hi.max(q);
+                    }
                 }
-            }
-            let mut size = [hi.x - lo.x, hi.y - lo.y, hi.z - lo.z];
+                (lo, hi)
+            };
+            // the longest edge is not always the long way (a long side made of a curve's segments, or notched):
+            // `u` is whichever of the two directions in the face the part reaches further along
+            let (lo, hi) = reach(u, w);
+            let u = if hi.y - lo.y > (hi.x - lo.x) * (1.0 + 1e-9) { w } else { u };
+            // an edge runs either way: point `u` along the positive side of the axis it follows most
+            let lead = if u.x.abs() >= u.y.abs() && u.x.abs() >= u.z.abs() { u.x } else if u.y.abs() >= u.z.abs() { u.y } else { u.z };
+            let u = if lead < 0.0 { -u } else { u };
+            let w = n.cross(u).normalize_or_zero();
+            let (lo, hi) = reach(u, w);
+            let extent = hi - lo;
+            let mut size = extent.to_array();
             size.sort_by(|a, b| b.total_cmp(a));
             if size[2] < 1e-4 {
                 return None; // flat: a drawing or a figure, not something to cut
@@ -600,7 +679,34 @@ pub fn parts(m: &Model, ids: &[Id]) -> Vec<Value> {
                 *count.entry(key).or_default() += 1;
             }
             let material = count.into_iter().max_by_key(|(_, n)| *n).map(|(k, _)| k).filter(|k| !k.is_empty());
-            Some(json!({"id": id, "name": name, "kind": kind, "material": material, "size": size.map(|x| (x * 10000.0).round() / 10000.0)}))
+            Some(Measured { id, name, kind, material, size: size.map(|x| (x * 10000.0).round() / 10000.0), origin: u * lo.x + w * lo.y + n * lo.z, u, w, n, extent })
+        })
+        .collect()
+}
+
+/// A number for a reply: rounded to `step` (a power of ten, like 1e-9), and never "-0".
+pub(crate) fn tidy(x: f64, step: f64) -> f64 {
+    // by the whole number of steps in one: multiplying by 1e-9 would leave 0.30000000000000004
+    let per = (1.0 / step).round();
+    (x * per).round() / per + 0.0
+}
+
+pub(crate) fn tidy3(v: DVec3, step: f64) -> [f64; 3] {
+    v.to_array().map(|x| tidy(x, step))
+}
+
+/// What `parts` answers for each part: name, kind, material, `size` as [length, width, thickness] (largest first),
+/// and its frame: `origin`, `axes` {u, w, n} and the `extent` along each (see `Measured`).
+pub fn parts(m: &Model, ids: &[Id]) -> Vec<Value> {
+    measure(m, ids)
+        .into_iter()
+        .map(|p| {
+            json!({
+                "id": p.id, "name": p.name, "kind": p.kind, "material": p.material, "size": p.size,
+                "origin": tidy3(p.origin, 1e-9),
+                "axes": {"u": tidy3(p.u, 1e-12), "w": tidy3(p.w, 1e-12), "n": tidy3(p.n, 1e-12)},
+                "extent": tidy3(p.extent, 1e-9),
+            })
         })
         .collect()
 }

@@ -105,10 +105,10 @@ button.link {
   background: var(--panel);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
   cursor: pointer;
-}
 
-.tile.comp:hover .tile-act {
-  display: grid;
+  .tile.comp:hover & {
+    display: grid;
+  }
 }
 
 details.collection > summary,

@@ -5,6 +5,25 @@ use super::*;
 
 impl Engine {
     pub(super) fn run_annotate(&mut self, cmd: Command) -> Result<Value> {
+        // the laid-out view is the session's, not the model's (and always of the whole model, never inside `edit`)
+        if let Command::LayOutParts { on, ids, gap } = cmd {
+            if !on {
+                self.laid_out = None;
+                self.laid_out_by_other = false;
+                return Ok(json!({"laid_out": false}));
+            }
+            if self.ctx.is_some() {
+                bail!("close the component you are editing first, then lay out the parts");
+            }
+            let view = crate::parts_layout::laid_out_view(&self.model, &ids, gap)?;
+            // the person's own view stays theirs when a plugin or an agent asks for it again
+            let persons = self.laid_out.is_some() && !self.laid_out_by_other;
+            self.laid_out = Some(crate::commands::LayOutRequest { ids, gap });
+            self.laid_out_by_other = self.untrusted && !persons;
+            let mut v = crate::parts_layout::summary(&view);
+            v["laid_out"] = json!(true);
+            return Ok(v);
+        }
         let ctx = self.ctx;
         let m: &mut Model = active_model!(self);
         Ok(match cmd {
@@ -88,6 +107,8 @@ impl Engine {
                 json!({})
             }
             Command::Parts { ids } => json!({"parts": crate::plugins::parts(m, &ids), "units": m.units}),
+            Command::PartsLayout { ids, gap } => crate::parts_layout::reply(m, &ids, gap)?,
+            Command::LayOutParts { .. } => unreachable!("handled above"),
             Command::Info => {
                 let b = m.world_bounds().map(|(lo, hi)| json!({"min": lo.to_array(), "max": hi.to_array()}));
                 json!({

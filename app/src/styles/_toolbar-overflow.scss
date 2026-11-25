@@ -3,13 +3,15 @@
 
 /* ---------- tool bar overflow: "+N more" and its searchable list ---------- */
 
-.toolbar .more-wrap {
-  position: relative;
-}
-/* while the list is open, the bar (and its list) sit above the Value box */
+.toolbar {
+  .more-wrap {
+    position: relative;
+  }
+  /* while the list is open, the bar (and its list) sit above the Value box */
 
-.toolbar:has(.more-tools) {
-  z-index: 70;
+  &:has(.more-tools) {
+    z-index: 70;
+  }
 }
 
 .tool.more {

@@ -48,7 +48,7 @@ fn inside(p: DVec2, ring: &[DVec2]) -> bool {
 
 /// Draw `outline` on the faces of its plane in `group`, then delete the
 /// pieces now inside it. Returns how many were removed.
-fn cut_on_plane(m: &mut Model, outline: &[DVec3], n: DVec3, group: Option<Id>) -> Result<usize> {
+pub(crate) fn cut_on_plane(m: &mut Model, outline: &[DVec3], n: DVec3, group: Option<Id>) -> Result<usize> {
     let keep = m.active_group;
     m.active_group = group;
     let r = (|| {

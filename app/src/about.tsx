@@ -7,6 +7,7 @@ import { useLocale } from "./locale";
 import { Sheet } from "./sheet";
 
 const WHERE: [LinkName, string][] = [
+  ["website", "about.website"],
   ["repo", "about.github"],
   ["license", "about.license"],
   ["changelog", "about.changelog"],

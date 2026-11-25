@@ -40,6 +40,42 @@ pub enum Command {
         #[serde(default = "arc_segments")]
         segments: usize,
     },
+    /// A smooth curve THROUGH the points (centripetal Catmull-Rom), as one chain of edges like an arc; `segments` pieces
+    /// between each two points. `closed` joins the last point to the first (a flat loop makes a face).
+    Spline {
+        points: Vec<[f64; 3]>,
+        #[serde(default)]
+        closed: bool,
+        #[serde(default = "arc_segments")]
+        segments: usize,
+    },
+    /// Chained cubic Bezier curves, as one chain of edges: `points` are anchor, handle, handle, anchor (then handle,
+    /// handle, anchor for each next piece), so 4, 7, 10... points. `segments` pieces per cubic. `closed`: the last
+    /// anchor is the first.
+    Bezier {
+        points: Vec<[f64; 3]>,
+        #[serde(default)]
+        closed: bool,
+        #[serde(default = "bezier_segments")]
+        segments: usize,
+    },
+    /// Close every closed loop of loose lines with a face (lines that cross or meet are cut there first). A loop inside
+    /// another becomes a hole in it. `ids`: lines, or groups to take loose lines from (none: all loose lines).
+    /// `open_holes`: leave the region inside a hole empty too. Skips loops that are not flat. One undo step.
+    MakeFaces {
+        #[serde(default)]
+        ids: Vec<Id>,
+        #[serde(default)]
+        open_holes: bool,
+    },
+    /// Move points to one height `z` (meters): the ends of the given lines, the corners of the given faces, every point
+    /// of the given groups (none: everything not locked). Points that land together are joined, collapsed lines and
+    /// faces are dropped. One undo step.
+    Flatten {
+        #[serde(default)]
+        ids: Vec<Id>,
+        z: f64,
+    },
     /// Offset a face's outline: + inward (new face inside), - outward (ring).
     Offset { face: Id, distance: f64 },
     /// Sweep a profile face along a path: `points`, `edges`, or `around` a face's outline.
@@ -145,6 +181,93 @@ pub enum Command {
     Parts {
         #[serde(default)]
         ids: Vec<Id>,
+    },
+    /// Where each part would lie if the model were taken apart and laid flat on the ground: on its biggest face,
+    /// length along red, longest first, equal parts next to each other, `gap` meters apart (default: 4% of the
+    /// longest part, 5 to 100 mm). `ids` (groups or components), or every part. Read-only: nothing moves.
+    PartsLayout {
+        #[serde(default)]
+        ids: Vec<Id>,
+        #[serde(default)]
+        gap: Option<f64>,
+    },
+    /// Set what the cut plan buys (saved with the model, one undo step): `kerf`, `trim` (meters), `sheet` [length, width],
+    /// `board_lengths` [meters], `lengths_by_size` {"2×4": [..]}, `currency`, `materials` {name: {sheet_price, board_price,
+    /// board_foot_price, grain, sheet, board_lengths}} (a material given as null is removed), `reset`.
+    CutStock {
+        #[serde(default)] kerf: Option<f64>,
+        #[serde(default)] trim: Option<f64>,
+        #[serde(default)] sheet: Option<Value>,
+        #[serde(default)] board_lengths: Option<Value>,
+        #[serde(default)] lengths_by_size: Option<Value>,
+        #[serde(default)] currency: Option<String>,
+        #[serde(default)] materials: Option<Value>,
+        #[serde(default)] reset: bool,
+    },
+    /// Read-only: the parts packed onto sheets and boards by the model's stock (`kerf` and `trim` may be tried without
+    /// saving): what is placed where, waste, and what it costs. `ids` (groups or components), or every part.
+    CutPlan {
+        #[serde(default)] ids: Vec<Id>,
+        #[serde(default)] kerf: Option<f64>,
+        #[serde(default)] trim: Option<f64>,
+    },
+    /// Write the cutting diagrams: a .pdf (a summary, a page per sheet, boards), or an .svg (the pages one under another).
+    /// `paper` "a4" or "letter".
+    ExportCutDiagrams {
+        path: String,
+        #[serde(default)] ids: Vec<Id>,
+        #[serde(default)] paper: Option<String>,
+    },
+    /// Write the part labels as a printable .pdf: number, name, size, material, which sheet or board, and a grain arrow.
+    ExportCutLabels {
+        path: String,
+        #[serde(default)] ids: Vec<Id>,
+        #[serde(default)] paper: Option<String>,
+    },
+    /// Write one DXF per part for a CNC router, numbered as the cut plan numbers them (docs/dev/woodworker.md): `path` a .zip
+    /// (or a .dxf when there is one part), or `dir` (the person only) a folder. `tool_diameter` in meters (default 6 mm),
+    /// `dogbones` adds a relief arc at every inside corner.
+    ExportCnc {
+        #[serde(default)] path: Option<String>,
+        #[serde(default)] dir: Option<String>,
+        #[serde(default)] ids: Vec<Id>,
+        #[serde(default)] tool_diameter: Option<f64>,
+        #[serde(default)] dogbones: bool,
+    },
+    /// Cut a groove in the first board where the second stands on it, as wide as the second is thick. `depth` and `width`
+    /// in meters (default a third of the board, and the other board's thickness), `clearance` extra width. One undo step.
+    Dado {
+        ids: Vec<Id>,
+        #[serde(default)] depth: Option<f64>,
+        #[serde(default)] width: Option<f64>,
+        #[serde(default)] clearance: Option<f64>,
+    },
+    /// Cut a step along the nearest edge of the first board, where the second stands on it. `depth` (default half),
+    /// `width` from the edge (default to the far side of the second board), `clearance`. One undo step.
+    Rabbet {
+        ids: Vec<Id>,
+        #[serde(default)] depth: Option<f64>,
+        #[serde(default)] width: Option<f64>,
+        #[serde(default)] clearance: Option<f64>,
+    },
+    /// Make a tenon on the end of the second board and its mortise in the first, where they touch. `length`, `thickness`,
+    /// `shoulder` (in from each edge of the width) and `clearance` in meters. One undo step.
+    Tenon {
+        ids: Vec<Id>,
+        #[serde(default)] length: Option<f64>,
+        #[serde(default)] thickness: Option<f64>,
+        #[serde(default)] shoulder: Option<f64>,
+        #[serde(default)] clearance: Option<f64>,
+    },
+    /// Show the parts laid out flat (`on`: true) or the model as it is (false). Laid out, the view and `render`
+    /// draw every part where `parts_layout` puts it, leave out what is not a part, and changes are refused until
+    /// it is switched off (New and Open switch it off). Nothing in the model moves; not an undo step, never saved.
+    LayOutParts {
+        on: bool,
+        #[serde(default)]
+        ids: Vec<Id>,
+        #[serde(default)]
+        gap: Option<f64>,
     },
     /// The plugins: built in, and those in ~/Documents/SketchCraft/Plugins.
     Plugins,
@@ -267,7 +390,7 @@ pub enum Command {
     Ungroup { id: Id },
     /// Lock or unlock groups (locked: can't be moved, edited or deleted).
     Lock { ids: Vec<Id>, #[serde(default = "yes")] locked: bool },
-    /// Soft edges aren't drawn. `ids` edges or faces; `coplanar:true` softens every flat seam.
+    /// Soft edges aren't drawn. `ids` edges, faces or groups (every face inside); `coplanar:true` softens every flat seam.
     Soften {
         #[serde(default)]
         ids: Vec<Id>,
@@ -328,7 +451,13 @@ pub enum Command {
         opts: RenderOpts,
     },
     Save { path: String },
-    Open { path: String },
+    /// Open a model: from `path`, or from `data`, a model's file contents (the app's bundled examples). Exactly one.
+    Open {
+        #[serde(default)]
+        path: Option<String>,
+        #[serde(default)]
+        data: Option<String>,
+    },
     /// Wavefront OBJ (+ .mtl) for Blender and friends.
     ExportObj { path: String },
     /// Binary glTF (.glb): Blender, three.js, game engines, Quick Look.
@@ -337,6 +466,10 @@ pub enum Command {
     ExportFbx { path: String, #[serde(default)] binary: Option<bool> },
     /// Binary STL for 3D printing; `scale` 1000 gives millimeters.
     ExportStl { path: String, #[serde(default = "one")] scale: f64 },
+    /// 3MF (.3mf) for slicers: one object per group and placed component. `units`: millimeter (default), centimeter,
+    /// meter, inch, foot, micron, or "model" for the model's own units.
+    #[serde(rename = "export_3mf")]
+    Export3mf { path: String, #[serde(default)] units: Option<String> },
     /// Animation through saved views (or a turntable): `path` .mp4/.mov
     /// (needs ffmpeg) or a folder for PNG frames. Render options apply.
     Animate {
@@ -1279,6 +1412,34 @@ pub enum Command {
     SaveImage { path: String, data: String },
     /// Volume of a closed group / component (m³), or not a solid.
     Volume { id: Id },
+    /// Repair the geometry in one undo step and list every change: repeated and inside faces, fins on shared edges,
+    /// reversed faces, flat neighbours joined, holes closed, stray lines. `ids`: groups or faces to limit it to
+    /// (none: the whole model); `dry_run`: only report what it would do.
+    FixModel {
+        #[serde(default)]
+        ids: Vec<Id>,
+        #[serde(default)]
+        dry_run: bool,
+        #[serde(default = "yes")]
+        stray_edges: bool,
+    },
+    /// Read-only: is this geometry a solid, and where it isn't (open edges, shared edges, reversed faces, inward shells).
+    CheckSolid {
+        #[serde(default)]
+        ids: Vec<Id>,
+    },
+    /// Read-only 3D printing check: solid, thin walls (`min_wall` mm, default 0.8), overhangs (`overhang_angle` degrees from
+    /// vertical, default 45), size in mm with a wrong-units hint, and whether it fits `build` (mm x y z).
+    PrintCheck {
+        #[serde(default)]
+        ids: Vec<Id>,
+        #[serde(default)]
+        min_wall: Option<f64>,
+        #[serde(default)]
+        overhang_angle: Option<f64>,
+        #[serde(default)]
+        build: Option<[f64; 3]>,
+    },
     /// Import a binary FBX (7.x): `path`, or the file as base64 in `data`.
     /// The file becomes one component; each mesh a group inside it.
     ImportFbx {
@@ -1300,6 +1461,14 @@ pub enum Command {
         height: f64,
         #[serde(default)]
         closed: bool,
+    },
+    /// Read-only: a room by name (loose: "master" finds "Primary Bedroom"): its floor area in m² and ft², perimeter, level.
+    RoomInfo { name: String },
+    /// A whole house from a compact plan: floors of rooms (rect or orthogonal polygon on the wall centerlines)
+    /// and openings between two rooms (or a room and "outside"). See `floorplan.rs`. One undo step.
+    FloorplanBuild {
+        #[serde(flatten)]
+        plan: serde_json::Map<String, Value>,
     },
     /// Pull a whole wall (the one `face` is a side of) `by` metres along that face's outward normal (negative: back
     /// the other way). Both sides move together so it keeps its thickness; its doors and windows ride along; walls
@@ -1837,6 +2006,10 @@ fn circle_segments() -> usize {
 
 fn arc_segments() -> usize {
     12
+}
+
+fn bezier_segments() -> usize {
+    16
 }
 
 fn wall_t() -> f64 {

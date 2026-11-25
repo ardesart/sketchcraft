@@ -1,0 +1,5 @@
+# @house is a group named "house": a box 4 m (x) by 3 m (y) by 2.4 m tall, one corner at the origin (x 0..4, y 0..3, z 0..2.4). @top is its top face. The house is the selected group.
+{"cmd":"begin_group","name":"house","as":"house"}
+{"cmd":"rect","from":[0,0,0],"to":[4,3,0],"as":"f"}
+{"cmd":"pushpull","face":"@f","distance":2.4,"as":"top"}
+{"cmd":"end_group"}

@@ -1,0 +1,2 @@
+# @lot is a flat rectangular face on the ground, 10 m (x) by 8 m (y), corner at the origin.
+{"cmd":"rect","from":[0,0,0],"to":[10,8,0],"as":"lot"}

@@ -487,6 +487,9 @@ pub struct Model {
     /// Drafting styles (tag line weights, hatches, dimension and text styles): see `drafting`
     #[serde(default, skip_serializing_if = "crate::drafting::Drafting::is_empty")]
     pub drafting: crate::drafting::Drafting,
+    /// What the cut plan buys: sheet and board sizes, saw kerf, trim and prices per material (see `cutplan`)
+    #[serde(default, skip_serializing_if = "crate::cutplan::CutStock::is_default")]
+    pub cut_stock: crate::cutplan::CutStock,
     /// Drawing sheets (page records), by id. What is on them is in `sheet_items`.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub sheets: BTreeMap<Id, crate::drafting::Sheet>,
@@ -676,6 +679,7 @@ struct Root {
 impl Model {
     pub(crate) fn new_id(&mut self) -> Id {
         // never wraps (a wrapped id would overwrite something that is there): past the end the command fails and is undone
+        crate::deadline::poll();
         match self.next_id.checked_add(1) {
             Some(n) => {
                 self.next_id = n;
@@ -795,13 +799,7 @@ impl Model {
             bail!("the new length needs to be more than zero");
         }
         if let Some(g) = self.active_group {
-            let mut inside = vec![g];
-            let mut i = 0;
-            while i < inside.len() {
-                let p = inside[i];
-                inside.extend(self.groups.iter().filter(|(_, x)| x.parent == Some(p)).map(|(k, _)| *k));
-                i += 1;
-            }
+            let inside = self.subtree(g);
             let vs: Vec<Id> = self.vertices.iter().filter(|(_, v)| v.group.is_some_and(|x| inside.contains(&x))).map(|(k, _)| *k).collect();
             let o = vs.iter().map(|v| self.p(*v)).fold(DVec3::splat(f64::MAX), |a, p| a.min(p));
             for v in vs {
@@ -917,7 +915,28 @@ impl Model {
 
     /// True once the deadline set by the command in progress has passed.
     pub fn over_deadline(&self) -> bool {
-        self.deadline.is_some_and(|d| std::time::Instant::now() >= d)
+        self.deadline.is_some_and(|d| std::time::Instant::now() >= d) || crate::deadline::over()
+    }
+
+    /// The earliest of the command's own limit and the engine-wide one (see `deadline`), for work that runs on another thread.
+    pub fn effective_deadline(&self) -> Option<std::time::Instant> {
+        match (self.deadline, crate::deadline::current()) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        }
+    }
+
+    /// Run `f` with a time limit of `limit` (None: no new limit; an earlier deadline still stands), then put the
+    /// deadline back as it was.
+    pub fn with_deadline<T>(&mut self, limit: Option<std::time::Duration>, f: impl FnOnce(&mut Model) -> T) -> T {
+        let before = self.deadline;
+        if let Some(l) = limit {
+            let d = std::time::Instant::now() + l;
+            self.deadline = Some(before.map_or(d, |b| b.min(d)));
+        }
+        let r = f(self);
+        self.deadline = before;
+        r
     }
 
     /// An error once the deadline has passed (see `deadline`).
@@ -954,7 +973,13 @@ impl Model {
 
     /// Add a planar face from a loop of vertex ids. Returns the face id (an
     /// existing one if this loop is already a face).
-    pub fn add_face(&mut self, mut lp: Vec<Id>) -> Result<Id> {
+    pub fn add_face(&mut self, lp: Vec<Id>) -> Result<Id> {
+        self.add_face_with(lp, None)
+    }
+
+    /// `add_face`, finding existing edges through `look` when the face goes in without cutting another (a cut moves
+    /// edges, which a Lookup can't follow).
+    pub(crate) fn add_face_with(&mut self, mut lp: Vec<Id>, look: Option<&mut Lookup>) -> Result<Id> {
         lp.dedup();
         if lp.len() > 1 && lp.first() == lp.last() {
             lp.pop();
@@ -971,7 +996,10 @@ impl Model {
             bail!("points are not on one plane");
         }
         let group = self.active_group;
-        if let Some((&id, _)) = self.faces.iter().find(|(_, f)| f.group == group && same_set(&f.outer, &lp)) {
+        if let Some((&id, _)) = self.faces.iter().find(|(_, f)| {
+            crate::deadline::poll();
+            f.group == group && same_set(&f.outer, &lp)
+        }) {
             return Ok(id);
         }
 
@@ -1008,6 +1036,7 @@ impl Model {
             }
         }
 
+        let cutting = split.is_some() && hole_in.is_none();
         if let Some((pid, fnorm)) = hole_in.or(split) {
             if fnorm.dot(n) < 0.0 {
                 lp.reverse();
@@ -1017,13 +1046,20 @@ impl Model {
                 hole.reverse();
                 self.faces.get_mut(&pid).unwrap().holes.push(hole);
             } else {
+                // the loop touches the face's outline: share whole edges with the
+                // faces across it, or the solid opens along that outline
+                lp = self.stitch_loop(&lp);
                 self.cut_from(pid, &lp)?;
             }
         } else if n.z < -0.999 {
             // ground-like faces face up
             lp.reverse();
         }
-        Ok(self.insert_face(Face { outer: lp, group, ..Default::default() }))
+        let face = Face { outer: lp, group, ..Default::default() };
+        Ok(match look {
+            Some(look) if !cutting => self.insert_face_with(face, look),
+            _ => self.insert_face(face),
+        })
     }
 
     /// Remove the area of loop `cut` from face `pid` (they share an edge or
@@ -1110,8 +1146,10 @@ impl Model {
                 }
             }
         }
-        let lp: Vec<Id> = points.iter().map(|p| self.vertex(*p)).collect();
-        self.add_face(lp)
+        let mut look = Lookup::default();
+        let g = self.active_group;
+        let lp: Vec<Id> = points.iter().map(|p| self.vertex_with(*p, g, &mut look)).collect::<Result<_>>()?;
+        self.add_face_with(lp, Some(&mut look))
     }
 
     // ----- push / pull ----------------------------------------------------------
@@ -1128,10 +1166,24 @@ impl Model {
         let dir = n * d;
         let loops: Vec<Vec<Id>> = f.loops().cloned().collect();
 
+        // which faces use each of this face's edges: one pass over the model, not one per edge
+        let mut users: HashMap<(Id, Id), Vec<Id>> = loops.iter().flat_map(|l| pairs(l)).map(|(a, b)| ((a.min(b), a.max(b)), Vec::new())).collect();
+        for (&id, g) in &self.faces {
+            for l in g.loops() {
+                for (a, b) in pairs(l) {
+                    if let Some(v) = users.get_mut(&(a.min(b), a.max(b))) {
+                        if v.last() != Some(&id) {
+                            v.push(id);
+                        }
+                    }
+                }
+            }
+        }
+        let using = |a: Id, b: Id| -> &[Id] { users.get(&(a.min(b), a.max(b))).map_or(&[], |v| v.as_slice()) };
         // Sides already standing on this face -> just slide it.
         let slide = loops.iter().all(|l| {
             pairs(l).all(|(a, b)| {
-                let others: Vec<Id> = self.faces_using_edge(a, b).into_iter().filter(|g| *g != fid).collect();
+                let others: Vec<Id> = using(a, b).iter().copied().filter(|g| *g != fid).collect();
                 !others.is_empty() && others.iter().all(|g| self.normal(*g).dot(n).abs() < 1e-6)
             })
         });
@@ -1154,20 +1206,17 @@ impl Model {
         // its edge)? Then pushing carves into the solid and the base disappears.
         let embedded = parent.is_some()
             || loops.iter().any(|l| {
-                pairs(l).any(|(a, b)| {
-                    self.faces_using_edge(a, b)
-                        .into_iter()
-                        .any(|g| g != fid && self.normal(g).dot(n) > 1.0 - 1e-9)
-                })
+                pairs(l).any(|(a, b)| using(a, b).iter().any(|&g| g != fid && self.normal(g).dot(n) > 1.0 - 1e-9))
             });
         let carving = embedded && d < 0.0;
         self.check_deadline()?;
 
         let mut map: HashMap<Id, Id> = HashMap::new();
+        let mut look = Lookup::default();
         for &v in loops.iter().flatten() {
             if !map.contains_key(&v) {
                 let p = self.p(v) + dir;
-                let nv = self.vertex_in(p, f.group);
+                let nv = self.vertex_with(p, f.group, &mut look)?;
                 map.insert(v, nv);
             }
         }
@@ -1181,7 +1230,7 @@ impl Model {
                 if carving {
                     quad.reverse();
                 }
-                sides.push(self.insert_face(Face { outer: quad, material: f.material.clone(), group: f.group, ..Default::default() }));
+                sides.push(self.insert_face_with(Face { outer: quad, material: f.material.clone(), group: f.group, ..Default::default() }, &mut look));
             }
         }
         let mut top = Face {
@@ -1194,7 +1243,7 @@ impl Model {
         if d < 0.0 && !carving {
             top.reverse();
         }
-        let top_id = self.insert_face(top);
+        let top_id = self.insert_face_with(top, &mut look);
         out.push(top_id);
         self.soften_smooth(&sides); // a pulled circle reads as a smooth cylinder
         out.extend(sides);
@@ -1212,15 +1261,27 @@ impl Model {
     /// All vertex ids that belong to the given entities (faces, edges, groups, vertices).
     pub fn vertices_of(&self, ids: &[Id]) -> Result<BTreeSet<Id>> {
         let mut vs = BTreeSet::new();
+        let mut kids: Option<HashMap<Id, Vec<Id>>> = None;
+        let mut by_group: Option<HashMap<Id, Vec<Id>>> = None;
         for id in ids {
+            crate::deadline::poll();
             if let Some(f) = self.faces.get(id) {
                 vs.extend(f.loops().flatten().copied());
             } else if let Some(e) = self.edges.get(id) {
                 vs.insert(e.a);
                 vs.insert(e.b);
             } else if self.groups.contains_key(id) {
-                let tree = self.subtree(*id);
-                vs.extend(self.vertices.iter().filter(|(_, v)| v.group.is_some_and(|g| tree.contains(&g))).map(|(&k, _)| k));
+                let tree = Self::subtree_in(kids.get_or_insert_with(|| self.group_children()), *id);
+                let index = by_group.get_or_insert_with(|| {
+                    let mut m: HashMap<Id, Vec<Id>> = HashMap::new();
+                    for (&k, v) in &self.vertices {
+                        if let Some(g) = v.group {
+                            m.entry(g).or_default().push(k);
+                        }
+                    }
+                    m
+                });
+                vs.extend(tree.iter().flat_map(|g| index.get(g).into_iter().flatten().copied()));
             } else if self.vertices.contains_key(id) {
                 vs.insert(*id);
             } else {
@@ -1234,15 +1295,58 @@ impl Model {
         self.transform(ids, glam::DMat4::from_translation(by))
     }
 
+    /// Each group's child groups (one pass over the groups).
+    pub(crate) fn group_children(&self) -> HashMap<Id, Vec<Id>> {
+        let mut k: HashMap<Id, Vec<Id>> = HashMap::new();
+        for (&g, grp) in &self.groups {
+            if let Some(p) = grp.parent {
+                k.entry(p).or_default().push(g);
+            }
+        }
+        k
+    }
+
+    /// A group and every group nested in it, from `group_children`.
+    pub(crate) fn subtree_in(kids: &HashMap<Id, Vec<Id>>, root: Id) -> BTreeSet<Id> {
+        let mut tree: BTreeSet<Id> = BTreeSet::from([root]);
+        let mut stack = vec![root];
+        while let Some(x) = stack.pop() {
+            for &k in kids.get(&x).into_iter().flatten() {
+                if tree.insert(k) {
+                    stack.push(k);
+                }
+            }
+        }
+        tree
+    }
+
     /// Faces named directly, or every face of a named group.
     pub fn faces_of(&self, ids: &[Id]) -> Result<Vec<Id>> {
         let mut out = Vec::new();
+        // the group tree and the faces of each group, found once for the whole list (not by a pass over the whole model
+        // for every group named)
+        let mut kids: Option<HashMap<Id, Vec<Id>>> = None;
+        let mut by_group: Option<HashMap<Id, Vec<Id>>> = None;
         for id in ids {
+            crate::deadline::poll();
             if self.faces.contains_key(id) {
                 out.push(*id);
             } else if self.groups.contains_key(id) {
-                let tree = self.subtree(*id);
-                out.extend(self.faces.iter().filter(|(_, f)| f.group.is_some_and(|g| tree.contains(&g))).map(|(&k, _)| k));
+                let tree = Self::subtree_in(kids.get_or_insert_with(|| self.group_children()), *id);
+                let index = by_group.get_or_insert_with(|| {
+                    let mut m: HashMap<Id, Vec<Id>> = HashMap::new();
+                    for (&k, f) in &self.faces {
+                        if let Some(g) = f.group {
+                            m.entry(g).or_default().push(k);
+                        }
+                    }
+                    m
+                });
+                let mut found: Vec<Id> = tree.iter().flat_map(|g| index.get(g).into_iter().flatten().copied()).collect();
+                if tree.len() > 1 {
+                    found.sort_unstable();
+                }
+                out.extend(found);
             } else {
                 bail!("{id} is not a face or group");
             }
@@ -1273,38 +1377,58 @@ impl Model {
 
     pub fn delete(&mut self, ids: &[Id]) -> Result<()> {
         self.check_unlocked(ids)?;
-        for id in ids {
+        // which faces use a line, found once when the first line is deleted (searching every face for each line made deleting many lines quadratic)
+        let mut by_edge: Option<HashMap<(Id, Id), Vec<Id>>> = None;
+        let mut gone_groups: Vec<Id> = Vec::new();
+        for (n, id) in ids.iter().enumerate() {
+            if n % 256 == 0 {
+                self.check_deadline()?;
+            }
             if self.faces.remove(id).is_some() {
                 // a face's edges stay behind as lines, like a real modeler
             } else if let Some(e) = self.edges.remove(id) {
                 // deleting an edge deletes the faces that need it
-                let dead: Vec<Id> = self.faces.iter().filter(|(_, f)| f.uses_edge(e.a, e.b)).map(|(&k, _)| k).collect();
-                for f in dead {
-                    self.faces.remove(&f);
+                let index = by_edge.get_or_insert_with(|| {
+                    let mut ix: HashMap<(Id, Id), Vec<Id>> = HashMap::new();
+                    for (&k, f) in &self.faces {
+                        for l in f.loops() {
+                            for (a, b) in pairs(l) {
+                                ix.entry((a.min(b), a.max(b))).or_default().push(k);
+                            }
+                        }
+                    }
+                    ix
+                });
+                for f in index.get(&(e.a.min(e.b), e.a.max(e.b))).into_iter().flatten() {
+                    self.faces.remove(f);
                 }
             } else if let Some(i) = self.annotations.iter().position(|a| a.id() == *id) {
                 self.annotations.remove(i);
             } else if self.instances.remove(id).is_some() {
                 // component placement removed; its definition stays in the library
             } else if self.groups.contains_key(id) {
-                // the group and everything nested in it
-                let tree = self.subtree(*id);
-                let inside = |g: &Option<Id>| g.is_some_and(|g| tree.contains(&g));
-                self.faces.retain(|_, f| !inside(&f.group));
-                self.edges.retain(|_, e| !inside(&e.group));
-                self.vertices.retain(|_, v| !inside(&v.group));
-                self.instances.retain(|_, i| !inside(&i.parent));
-                for g in &tree {
-                    self.groups.remove(g);
-                    self.cages.remove(g);
-                }
-                if inside(&self.active_group) {
-                    self.active_group = None;
-                }
+                gone_groups.push(*id);
             } else {
                 bail!("no face, edge or group {id}");
             }
         }
+        if !gone_groups.is_empty() {
+            // the groups and everything nested in them, together: one pass over the model however many groups there are
+            let tree = self.subtrees(&gone_groups);
+            let inside = |g: &Option<Id>| g.is_some_and(|g| tree.contains(&g));
+            self.faces.retain(|_, f| !inside(&f.group));
+            self.edges.retain(|_, e| !inside(&e.group));
+            self.vertices.retain(|_, v| !inside(&v.group));
+            self.instances.retain(|_, i| !inside(&i.parent));
+            for g in &tree {
+                self.groups.remove(g);
+                self.cages.remove(g);
+            }
+            if inside(&self.active_group) {
+                self.active_group = None;
+            }
+        }
+        self.check_deadline()?;
         self.gc();
         Ok(())
     }
@@ -1326,6 +1450,11 @@ impl Model {
         // groups and placements go inside the new group as they are; loose
         // faces become its own geometry
         let (nest, loose): (Vec<Id>, Vec<Id>) = ids.iter().partition(|id| self.groups.contains_key(id) || self.instances.contains_key(id));
+        // the new group is made inside the open one: it can't take that group (or one around it) in, or they'd hold each other
+        if let Some(open) = self.ancestors(self.active_group).into_iter().find(|a| nest.contains(a)) {
+            let name = self.groups.get(&open).map(|g| g.name.clone()).unwrap_or_default();
+            bail!("{name} is the group you are working in (or one around it), so it can't be grouped into a new group inside itself: close it first (end_group)");
+        }
         let faces = self.faces_of(&loose)?;
         let nested = nest.clone();
         let gid = self.new_id();
@@ -1408,30 +1537,65 @@ impl Model {
     pub fn copy_group(&mut self, gid: Id, by: DVec3, name: Option<String>) -> Result<Id> {
         self.check_room(self.copy_cost(&[gid]))?;
         let parent = self.groups.get(&gid).ok_or_else(|| anyhow!("{gid} is not a group"))?.parent;
-        self.copy_group_into(gid, by, name, parent)
+        let mut index = CopyIndex::new(self);
+        self.copy_group_into(gid, by, name, parent, &mut index)
     }
 
-    /// Copy a group (and everything nested in it) into `parent`.
-    fn copy_group_into(&mut self, gid: Id, by: DVec3, name: Option<String>, parent: Option<Id>) -> Result<Id> {
-        let g = self.groups.get(&gid).ok_or_else(|| anyhow!("{gid} is not a group"))?.clone();
-        let new = self.new_id();
-        self.groups.insert(new, Group { name: name.unwrap_or_else(|| format!("{} copy", g.name)), tag: g.tag.clone(), hidden: false, parent, locked: false });
-        if let Some(mut c) = self.cages.get(&gid).cloned() {
-            for p in c.points.iter_mut() {
-                *p = (DVec3::from(*p) + by).to_array();
-            }
-            if let Some(s) = c.symmetry.as_mut() {
-                s.center += by[s.axis];
-            }
-            self.cages.insert(new, c);
+    /// Copy a group (and everything nested in it) into `parent`. Iterative (a deeply nested model can't overflow the
+    /// stack) and cycle-safe, and it reads the model through `index` (built once per command) so copying many groups
+    /// costs about what they hold, not the groups times the model.
+    pub(crate) fn copy_group_into(&mut self, gid: Id, by: DVec3, name: Option<String>, parent: Option<Id>, index: &mut CopyIndex) -> Result<Id> {
+        enum Todo {
+            Enter { gid: Id, parent: Option<Id>, name: Option<String> },
+            Finish { gid: Id, new: Id },
         }
-        // nested groups and placements come along
-        let kids: Vec<Id> = self.groups.iter().filter(|(_, c)| c.parent == Some(gid)).map(|(&k, _)| k).collect();
-        for k in kids {
-            let n = self.groups[&k].name.clone();
-            self.copy_group_into(k, by, Some(n), Some(new))?;
+        if !self.groups.contains_key(&gid) {
+            bail!("{gid} is not a group");
         }
-        let placed: Vec<crate::model::Instance> = self.instances.values().filter(|i| i.parent == Some(gid)).cloned().collect();
+        let mut root = None;
+        let mut seen: std::collections::HashSet<Id> = std::collections::HashSet::new();
+        let mut todo = vec![Todo::Enter { gid, parent, name }];
+        while let Some(t) = todo.pop() {
+            self.check_deadline()?;
+            match t {
+                Todo::Enter { gid, parent, name } => {
+                    if !seen.insert(gid) {
+                        continue; // a loop (never in a checked model): each group is copied once
+                    }
+                    let Some(g) = self.groups.get(&gid).cloned() else { continue };
+                    let new = self.new_id();
+                    self.groups.insert(new, Group { name: name.unwrap_or_else(|| format!("{} copy", g.name)), tag: g.tag.clone(), hidden: false, parent, locked: false });
+                    if let Some(p) = parent {
+                        index.kids.entry(p).or_default().push(new);
+                    }
+                    root.get_or_insert(new);
+                    if let Some(mut c) = self.cages.get(&gid).cloned() {
+                        for p in c.points.iter_mut() {
+                            *p = (DVec3::from(*p) + by).to_array();
+                        }
+                        if let Some(s) = c.symmetry.as_mut() {
+                            s.center += by[s.axis];
+                        }
+                        self.cages.insert(new, c);
+                    }
+                    // nested groups come first (in order), then this group's own placements and geometry
+                    todo.push(Todo::Finish { gid, new });
+                    let kids: Vec<Id> = index.kids.get(&gid).cloned().unwrap_or_default();
+                    for &k in kids.iter().rev() {
+                        if let Some(n) = self.groups.get(&k).map(|c| c.name.clone()) {
+                            todo.push(Todo::Enter { gid: k, parent: Some(new), name: Some(n) });
+                        }
+                    }
+                }
+                Todo::Finish { gid, new } => self.copy_group_contents(gid, new, by, index),
+            }
+        }
+        root.ok_or_else(|| anyhow!("{gid} is not a group"))
+    }
+
+    /// The placements, points, edges and faces that belong to group `gid`, copied into group `new`.
+    fn copy_group_contents(&mut self, gid: Id, new: Id, by: DVec3, index: &CopyIndex) {
+        let placed: Vec<crate::model::Instance> = index.instances.get(&gid).into_iter().flatten().filter_map(|k| self.instances.get(k)).cloned().collect();
         for mut i in placed {
             i.parent = Some(new);
             i.transform = glam::DMat4::from_translation(by) * i.transform;
@@ -1439,14 +1603,13 @@ impl Model {
             self.instances.insert(id, i);
         }
         let mut map: HashMap<Id, Id> = HashMap::new();
-        let verts: Vec<(Id, DVec3)> =
-            self.vertices.iter().filter(|(_, v)| v.group == Some(gid)).map(|(&k, v)| (k, v.p)).collect();
+        let verts: Vec<(Id, DVec3)> = index.vertices.get(&gid).into_iter().flatten().filter_map(|k| self.vertices.get(k).map(|v| (*k, v.p))).collect();
         for (k, p) in verts {
             let id = self.new_id();
             self.vertices.insert(id, Vertex { p: p + by, group: Some(new) });
             map.insert(k, id);
         }
-        let edges: Vec<Edge> = self.edges.values().filter(|e| e.group == Some(gid)).cloned().collect();
+        let edges: Vec<Edge> = index.edges.get(&gid).into_iter().flatten().filter_map(|k| self.edges.get(k)).cloned().collect();
         let mut curves: HashMap<Id, Id> = HashMap::new();
         for e in edges {
             // a copy's curves are its own
@@ -1454,7 +1617,7 @@ impl Model {
             let id = self.new_id();
             self.edges.insert(id, Edge { a: map[&e.a], b: map[&e.b], group: Some(new), soft: e.soft, hidden: e.hidden, curve, draft: e.draft.clone(), seam: e.seam });
         }
-        let faces: Vec<Face> = self.faces.values().filter(|f| f.group == Some(gid)).cloned().collect();
+        let faces: Vec<Face> = index.faces.get(&gid).into_iter().flatten().filter_map(|k| self.faces.get(k)).cloned().collect();
         for f in faces {
             let id = self.new_id();
             let face = Face {
@@ -1470,7 +1633,6 @@ impl Model {
             };
             self.faces.insert(id, face);
         }
-        Ok(new)
     }
 
     pub fn begin_group(&mut self, name: String) -> Id {
@@ -1770,14 +1932,177 @@ impl Model {
 
     /// A group and every group nested in it, at any depth.
     pub fn subtree(&self, gid: Id) -> BTreeSet<Id> {
-        let mut out = BTreeSet::from([gid]);
-        loop {
-            let more: Vec<Id> = self.groups.iter().filter(|(k, g)| !out.contains(k) && g.parent.is_some_and(|p| out.contains(&p))).map(|(&k, _)| k).collect();
-            if more.is_empty() {
-                return out;
+        self.subtrees(&[gid])
+    }
+
+    /// Several groups and every group nested in any of them.
+    pub fn subtrees(&self, roots: &[Id]) -> BTreeSet<Id> {
+        // one pass over the groups to find each one's children, then a walk down: linear however deep the nesting goes
+        let mut kids: HashMap<Id, Vec<Id>> = HashMap::new();
+        for (&k, g) in &self.groups {
+            if let Some(p) = g.parent {
+                kids.entry(p).or_default().push(k);
             }
-            out.extend(more);
         }
+        let mut out: BTreeSet<Id> = BTreeSet::new();
+        let mut stack: Vec<Id> = Vec::new();
+        for &r in roots {
+            if out.insert(r) {
+                stack.push(r);
+            }
+        }
+        while let Some(x) = stack.pop() {
+            for &k in kids.get(&x).into_iter().flatten() {
+                if out.insert(k) {
+                    stack.push(k);
+                }
+            }
+        }
+        out
+    }
+
+    /// Does any group sit inside itself (its parent chain comes back round)? One pass, no recursion.
+    pub fn has_group_loop(&self) -> bool {
+        self.group_depths().is_err()
+    }
+
+    /// How deep every group sits (a top-level group is level 1), in one pass over the groups and without recursion; or
+    /// a group on a loop of parents (the group a walk up from it came back to).
+    fn group_depths(&self) -> Result<HashMap<Id, u32>, Id> {
+        // `ON_WALK` marks a group on the walk in progress
+        const ON_WALK: u32 = u32::MAX;
+        let mut depth: HashMap<Id, u32> = HashMap::with_capacity(self.groups.len());
+        let mut walk: Vec<Id> = Vec::new();
+        for &start in self.groups.keys() {
+            if depth.contains_key(&start) {
+                continue;
+            }
+            walk.clear();
+            let mut cur = Some(start);
+            let mut base = 0u32;
+            while let Some(g) = cur {
+                match depth.get(&g) {
+                    Some(&ON_WALK) => return Err(g),
+                    Some(&d) => {
+                        base = d;
+                        break;
+                    }
+                    None => {}
+                }
+                let Some(grp) = self.groups.get(&g) else { break };
+                depth.insert(g, ON_WALK);
+                walk.push(g);
+                cur = grp.parent;
+            }
+            for (k, g) in walk.iter().rev().enumerate() {
+                depth.insert(*g, base + 1 + k as u32);
+            }
+        }
+        Ok(depth)
+    }
+
+    /// The deepest nesting of groups (0 when there are none), or `None` if some groups sit inside each other in a loop.
+    pub fn group_nesting(&self) -> Option<u32> {
+        self.group_depths().ok().map(|d| d.values().copied().max().unwrap_or(0))
+    }
+
+    /// Break every loop of groups by putting one group of each at the top level, and bring every group nested deeper than
+    /// `MAX_GROUP_DEPTH` levels up to the limit (a group's own contents stay in it; only where it sits changes), in the
+    /// model and inside every component. A file from outside may carry both; the program's own never do. One pass over
+    /// the groups each, so a file of any size repairs in time proportional to its groups.
+    pub fn repair_group_nesting(&mut self) -> GroupRepair {
+        let mut out = GroupRepair::default();
+        self.repair_group_nesting_into(&mut out, "");
+        out
+    }
+
+    fn repair_group_nesting_into(&mut self, out: &mut GroupRepair, within: &str) {
+        let label = |n: &str| if within.is_empty() { tidy_group_name(n) } else { format!("{} (in {})", tidy_group_name(n), tidy_group_name(within)) };
+        // loops: one walk over all groups; the one cut on each loop is its lowest id (so the result doesn't depend on where the walk began)
+        let mut state: HashMap<Id, (bool, usize)> = HashMap::with_capacity(self.groups.len()); // (finished, place on the walk)
+        let mut walk: Vec<Id> = Vec::new();
+        let mut cuts: Vec<Id> = Vec::new();
+        let keys: Vec<Id> = self.groups.keys().copied().collect();
+        for start in keys {
+            if state.contains_key(&start) {
+                continue;
+            }
+            walk.clear();
+            let mut cur = Some(start);
+            while let Some(g) = cur {
+                match state.get(&g) {
+                    Some((true, _)) => break,
+                    Some((false, at)) => {
+                        // the walk is back on itself: the loop is walk[at..]
+                        if let Some(&cut) = walk[*at..].iter().min() {
+                            cuts.push(cut);
+                            if let Some(x) = self.groups.get_mut(&cut) {
+                                x.parent = None;
+                            }
+                        }
+                        break;
+                    }
+                    None => {}
+                }
+                let Some(grp) = self.groups.get(&g) else { break };
+                state.insert(g, (false, walk.len()));
+                walk.push(g);
+                cur = grp.parent;
+            }
+            for g in &walk {
+                state.insert(*g, (true, 0));
+            }
+        }
+        cuts.sort_unstable();
+        for g in &cuts {
+            out.loops += 1;
+            if out.loop_names.len() < GroupRepair::NAMED {
+                out.loop_names.push(label(&self.groups[g].name));
+            }
+        }
+        // depth: a group nested below the limit comes up to the limit's level
+        if let Ok(depth) = self.group_depths() {
+            let max = MAX_GROUP_DEPTH as u32;
+            let mut deep: Vec<(u32, Id)> = depth.iter().filter(|(_, d)| **d >= max).map(|(g, d)| (*d, *g)).collect();
+            if !deep.is_empty() {
+                deep.sort_unstable();
+                // where what sat in a group goes when its own level is gone: the nearest group above the limit
+                let mut home: HashMap<Id, Option<Id>> = HashMap::new();
+                let mut moved: Vec<Id> = Vec::new();
+                for (d, g) in deep {
+                    let parent = self.groups[&g].parent;
+                    let up = parent.and_then(|p| home.get(&p).copied().unwrap_or(Some(p)));
+                    home.insert(g, up);
+                    if d > max {
+                        self.groups.get_mut(&g).unwrap().parent = up;
+                        moved.push(g);
+                    }
+                }
+                for i in self.instances.values_mut() {
+                    if let Some(p) = i.parent {
+                        if depth.get(&p).is_some_and(|d| *d > max) {
+                            i.parent = home.get(&p).copied().flatten();
+                        }
+                    }
+                }
+                moved.sort_unstable();
+                out.too_deep += moved.len();
+                for g in moved.iter().take(GroupRepair::NAMED.saturating_sub(out.deep_names.len())) {
+                    out.deep_names.push(label(&self.groups[g].name));
+                }
+            }
+        }
+        for d in self.definitions.values_mut() {
+            // look first: a shared component model is only copied if it needs the repair
+            if d.model.needs_group_repair() {
+                let name = d.name.clone();
+                std::sync::Arc::make_mut(&mut d.model).repair_group_nesting_into(out, &name);
+            }
+        }
+    }
+
+    fn needs_group_repair(&self) -> bool {
+        self.group_nesting().is_none_or(|d| d > MAX_GROUP_DEPTH as u32) || self.definitions.values().any(|d| d.model.needs_group_repair())
     }
 
     /// A group and the groups it sits inside, innermost first.
@@ -1785,7 +2110,7 @@ impl Model {
         let mut out = Vec::new();
         let mut cur = gid;
         while let Some(g) = cur {
-            if out.contains(&g) || out.len() > 256 {
+            if out.contains(&g) || out.len() > MAX_GROUP_DEPTH {
                 break; // a loop (shouldn't happen): stop rather than spin
             }
             out.push(g);
@@ -1852,6 +2177,95 @@ impl Model {
         let first = it.next()?;
         Some(it.fold((first, first), |(lo, hi), p| (lo.min(p), hi.max(p))))
     }
+}
+
+/// The most levels groups may be nested (a group in a group in a group ...). Real models stay in single digits (the
+/// SketchUp and SketchCraft files kept for testing nest one level; a deeply organised house is a dozen); this is far above that, and
+/// low enough that every walk over the tree, the program's and a plugin's, is cheap and none can run out of stack. A
+/// model that goes past it is refused when made, and one opened from a file is brought up to it (`repair_group_nesting`).
+pub const MAX_GROUP_DEPTH: usize = 256;
+
+/// What `Model::repair_group_nesting` changed: groups that sat inside each other in a loop, and groups nested more than
+/// `MAX_GROUP_DEPTH` levels deep. The names are the first few only.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct GroupRepair {
+    pub loops: usize,
+    pub too_deep: usize,
+    pub loop_names: Vec<String>,
+    pub deep_names: Vec<String>,
+}
+
+impl GroupRepair {
+    /// How many group names a notice lists.
+    pub const NAMED: usize = 5;
+
+    pub fn is_empty(&self) -> bool {
+        self.loops == 0 && self.too_deep == 0
+    }
+
+    /// The fields an `open` reply (and the notice the app shows) carries; nothing when there was nothing to repair.
+    pub fn add_to(&self, reply: &mut serde_json::Value) {
+        if self.loops > 0 {
+            reply["group_loops_repaired"] = serde_json::json!(self.loops);
+            reply["group_loop_names"] = serde_json::json!(self.loop_names);
+        }
+        if self.too_deep > 0 {
+            reply["groups_flattened"] = serde_json::json!(self.too_deep);
+            reply["groups_flattened_names"] = serde_json::json!(self.deep_names);
+        }
+    }
+
+    /// The repair a reply carries (see `add_to`).
+    pub fn from_reply(r: &serde_json::Value) -> GroupRepair {
+        let names = |k: &str| r[k].as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect()).unwrap_or_default();
+        GroupRepair { loops: r["group_loops_repaired"].as_u64().unwrap_or(0) as usize, too_deep: r["groups_flattened"].as_u64().unwrap_or(0) as usize, loop_names: names("group_loop_names"), deep_names: names("groups_flattened_names") }
+    }
+
+    /// What to tell the person, in plain English (the app shows its own translation of the same facts).
+    pub fn notice(&self, what: &str) -> Option<String> {
+        if self.is_empty() {
+            return None;
+        }
+        let list = |n: usize, names: &[String]| {
+            if names.is_empty() {
+                String::new()
+            } else if n > names.len() {
+                format!(" ({} and {} more)", names.join(", "), n - names.len())
+            } else {
+                format!(" ({})", names.join(", "))
+            }
+        };
+        let mut parts = Vec::new();
+        if self.loops > 0 {
+            let n = self.loops;
+            parts.push(if n == 1 {
+                format!("1 group{} that sat inside itself (a loop), which could have made copying fail; it was moved to the top level", list(n, &self.loop_names))
+            } else {
+                format!("{n} groups{} that sat inside each other in loops, which could have made copying fail; they were moved to the top level", list(n, &self.loop_names))
+            });
+        }
+        if self.too_deep > 0 {
+            let n = self.too_deep;
+            parts.push(if n == 1 {
+                format!("1 group{} that was nested more than {MAX_GROUP_DEPTH} levels deep; it was moved up to level {MAX_GROUP_DEPTH}", list(n, &self.deep_names))
+            } else {
+                format!("{n} groups{} that were nested more than {MAX_GROUP_DEPTH} levels deep; they were moved up to level {MAX_GROUP_DEPTH}", list(n, &self.deep_names))
+            });
+        }
+        Some(format!("This {what} had {}. Nothing was lost; the file itself is unchanged until the model is saved.", parts.join(", and ")))
+    }
+}
+
+/// A group's name as a notice shows it: one line, at most 40 characters.
+fn tidy_group_name(n: &str) -> String {
+    let one: String = n
+        .chars()
+        .map(|c| if c.is_control() || crate::text::is_odd_space(c) || matches!(c, '\u{2028}' | '\u{2029}') { ' ' } else { c })
+        .filter(|c| !crate::text::is_format_char(*c) && !crate::text::is_invisible_filler(*c))
+        .take(40)
+        .collect();
+    let one = one.trim();
+    if one.is_empty() { "unnamed".to_string() } else { one.to_string() }
 }
 
 /// A model whose counter or any id is above this is refused on Open, Restore and insert (the program never writes one:
@@ -1992,6 +2406,11 @@ impl Model {
         let bad = |what: &str| -> Result<()> { bail!("that would put a non-finite or absurdly large number ({what}) in the model, so it was not done") };
         if self.next_id > ID_LIMIT || self.max_own_id() > ID_LIMIT {
             bail!("this model's ids are too close to the top of the range ({} is the most the program accepts), so it can't be used: a file edited by hand or damaged may do this; open an earlier copy", ID_LIMIT);
+        }
+        match self.group_nesting() {
+            None => bail!("that would leave groups inside each other in a loop, so it was not done"),
+            Some(d) if d > MAX_GROUP_DEPTH as u32 => bail!("that would nest groups more than {MAX_GROUP_DEPTH} levels deep, so it was not done"),
+            Some(_) => {}
         }
         if !self.vertices.values().all(|v| sane3(v.p)) {
             return bad("a point");
@@ -2412,17 +2831,19 @@ impl Model {
     /// What copying these faces, groups and placements once would add (see `entity_count`).
     pub fn copy_cost(&self, ids: &[Id]) -> usize {
         let mut cost = 0usize;
-        let mut trees: BTreeSet<Id> = BTreeSet::new();
+        let mut roots: Vec<Id> = Vec::new();
         for id in ids {
             if self.groups.contains_key(id) {
-                trees.extend(self.subtree(*id));
+                roots.push(*id);
             } else if self.faces.contains_key(id) {
                 cost += 1 + self.faces[id].loops().map(|l| l.len()).sum::<usize>();
             } else if self.instances.contains_key(id) {
                 cost += 1;
             }
         }
-        if !trees.is_empty() {
+        if !roots.is_empty() {
+            // the groups' trees, together: one pass over the groups however many are named
+            let trees = self.subtrees(&roots);
             let inside = |g: &Option<Id>| g.is_some_and(|g| trees.contains(&g));
             cost += self.vertices.values().filter(|v| inside(&v.group)).count() + self.edges.values().filter(|e| inside(&e.group)).count() + self.faces.values().filter(|f| inside(&f.group)).count() + self.instances.values().filter(|i| inside(&i.parent)).count();
         }
@@ -2446,11 +2867,55 @@ impl Model {
     /// A rough size in bytes, for budgeting undo history (not exact; shared
     /// component geometry isn't counted, since undo steps share it).
     pub fn approx_bytes(&self) -> usize {
-        let tex: usize = self.materials.values().map(|m| 64 + m.texture.as_ref().map_or(0, |t| t.data.len())).sum();
+        // a picture counts for the room its text really takes (a string read from a file or a command has spare room at the end)
+        let tex: usize = self.materials.values().map(|m| 64 + m.texture.as_ref().map_or(0, |t| t.data.capacity())).sum();
         let faces: usize = self.faces.values().map(|f| 96 + 4 * (f.outer.len() + f.holes.iter().map(Vec::len).sum::<usize>()) + f.data_bytes()).sum();
         let photos: usize = self.views.iter().map(|v| 160 + v.photo.as_ref().map_or(0, String::len)).sum();
         let clouds: usize = self.clouds.values().map(|c| 64 + 4 * c.points.len() + c.colors.len()).sum();
         self.text_bytes() + clouds + self.vertices.len() * 64 + self.edges.len() * 72 + faces + self.groups.len() * 96 + self.instances.len() * 200 + self.definitions.len() * 128 + tex + photos + self.annotations.len() * 120 + self.guides.len() * 80 + self.sheets.len() * 160 + self.sheet_items.len() * 160
+    }
+}
+
+/// What belongs to each group, worked out once per copy command (one pass over the model) so that copying many
+/// groups doesn't search the whole model for each one.
+#[derive(Default)]
+pub(crate) struct CopyIndex {
+    pub kids: HashMap<Id, Vec<Id>>,
+    pub instances: HashMap<Id, Vec<Id>>,
+    pub vertices: HashMap<Id, Vec<Id>>,
+    pub edges: HashMap<Id, Vec<Id>>,
+    pub faces: HashMap<Id, Vec<Id>>,
+}
+
+impl CopyIndex {
+    pub fn new(m: &Model) -> Self {
+        let mut ix = CopyIndex::default();
+        for (&k, g) in &m.groups {
+            if let Some(p) = g.parent {
+                ix.kids.entry(p).or_default().push(k);
+            }
+        }
+        for (&k, i) in &m.instances {
+            if let Some(p) = i.parent {
+                ix.instances.entry(p).or_default().push(k);
+            }
+        }
+        for (&k, v) in &m.vertices {
+            if let Some(g) = v.group {
+                ix.vertices.entry(g).or_default().push(k);
+            }
+        }
+        for (&k, e) in &m.edges {
+            if let Some(g) = e.group {
+                ix.edges.entry(g).or_default().push(k);
+            }
+        }
+        for (&k, f) in &m.faces {
+            if let Some(g) = f.group {
+                ix.faces.entry(g).or_default().push(k);
+            }
+        }
+        ix
     }
 }
 

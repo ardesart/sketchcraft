@@ -133,7 +133,7 @@ feature/*  --PR-->  develop  --PR-->  staging  --PR-->  main  --tag v*-->  relea
 | --- | ------------ |
 | `test` | the Rust engine tests (including the SketchUp corpus and the importer fuzzing), `tsc`, `npm run check`, the Vitest unit tests; that every action is pinned to a commit SHA; that CI and `rust-toolchain.toml` name the same Rust |
 | `ui-tests` | **on `staging`, `main` and release tags** (and pull requests into them): builds the release engine, installs a pinned Playwright and Chromium, starts a scratch bridge and the dev page, and runs all the browser suites above, visual regression included, in three parallel groups (`run.mjs --shard=i/3`; the `ui-tests` check reports all three). A failure uploads screenshots and traces |
-| `audit` | no high advisory in the shipped npm packages; lockfiles name only the public registries |
+| `audit` | no high advisory in the shipped npm packages; lockfiles name only the public registries; no commit in the pull request has an AI co-author line |
 | `flow` | pull requests into `staging` and `main` come from the branch before them |
 
 CI has read-only access to the repository and no secrets. Every third-party action is pinned to a full commit SHA.
@@ -144,6 +144,11 @@ The only dependency added for testing is Vitest, at an exact version.
 - Small, logical commits; say what changed and why.
 - Run what you touched before you push (the commands above).
 - Don't commit models, `.env` files or anything from your home folder.
+- **No AI co-author lines.** You're welcome to use AI tools, but the commit is yours: leave out
+  `Co-authored-by: Claude …` (and any other assistant) and "Generated with …" footers. Help › About and GitHub's
+  contributor list are for people. CI fails a pull request whose commits name Claude or Anthropic as a co-author;
+  `git commit --amend` (or `git rebase -i`) removes the line, and Claude Code's attribution setting stops it
+  being added.
 - Security problems: see [SECURITY.md](SECURITY.md), not a public issue.
 
 ## License

@@ -1,0 +1,2 @@
+# @facade is a flat vertical face in the plane y = 0, 6 m wide (x 0..6) and 3 m tall (z 0..3): the front of a building.
+{"cmd":"rect","from":[0,0,0],"to":[6,0,3],"as":"facade"}

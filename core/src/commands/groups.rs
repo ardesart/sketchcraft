@@ -5,6 +5,7 @@ use super::*;
 
 impl Engine {
     pub(super) fn run_groups(&mut self, cmd: Command) -> Result<Value> {
+        let self_untrusted = self.untrusted;
         let m: &mut Model = active_model!(self);
         Ok(match cmd {
             Command::BeginGroup { name } => {
@@ -63,10 +64,10 @@ impl Engine {
                 let Some(face) = face else { bail!("no face there") };
                 json!({"face": face, "exact": on.is_some()})
             }
-            Command::Copy { group, by, name } => json!({"group": m.copy_group(group, v3(by), name)?}),
+            Command::Copy { group, by, name } => json!({"group": m.with_deadline(self_untrusted.then_some(UNTRUSTED_COPY_SECONDS), |m| m.copy_group(group, v3(by), name))?}),
             Command::MakeComponent { ids, name } => {
                 let n = name.unwrap_or_else(|| format!("Component {}", m.definitions.len() + 1));
-                let inst = m.make_component(&ids, n)?;
+                let inst = m.with_deadline(self_untrusted.then_some(UNTRUSTED_COPY_SECONDS), |m| m.make_component(&ids, n))?;
                 json!({"instance": inst, "component": m.instances[&inst].def})
             }
             Command::Place { component, at, rotate, name, host } => {
@@ -112,7 +113,7 @@ impl Engine {
                 }
                 json!({})
             }
-            Command::Explode { id } => json!({"group": m.explode(id)?}),
+            Command::Explode { id } => json!({"group": m.with_deadline(self_untrusted.then_some(UNTRUSTED_COPY_SECONDS), |m| m.explode(id))?}),
             Command::Components => json!({"components": m.definitions.iter().map(|(id, d)| json!({
                 "id": id, "name": d.name, "faces": d.model.faces.len(),
                 "placed": m.instances.values().filter(|i| i.def == *id).count(),

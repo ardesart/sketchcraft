@@ -1,0 +1,14 @@
+{
+ "house": "@house is a group named \"house\": a box 4 m (x) by 3 m (y) by 2.4 m tall, one corner at the origin (x 0..4, y 0..3, z 0..2.4). @top is its top face. The house is the selected group.",
+ "room": "@room is a group named \"Wall\": a closed room, walls 0.2 m thick and 2.4 m high, centerline 6 m (x) by 4 m (y) from the origin (outer size 6.2 x 4.2).",
+ "pair": "@a is a group named \"a\": a 1 m cube at the origin (x 0..1). @b is a group named \"b\": a 1 m cube at x 3..4. Both start at y 0..1, z 0..1.",
+ "lot": "@lot is a flat rectangular face on the ground, 10 m (x) by 8 m (y), corner at the origin.",
+ "block": "A loose (ungrouped) box 4 m (x) by 3 m (y) by 2.4 m tall, corner at the origin. @top is its top face. Its front face (facing -y) is the one at y = 0.",
+ "facade": "@facade is a flat vertical face in the plane y = 0, 6 m wide (x 0..6) and 3 m tall (z 0..3): the front of a building.",
+ "tower": "@tower is a group named \"tower\": a box 2 m by 2 m and 6 m tall at the origin (x 0..2, y 0..2, z 0..6). @top is its top face.",
+ "moved": "@house is a group named \"house\", a 4 m (x) by 3 m (y) by 2.4 m box. The last thing done was: move the house 5 m east (it now sits at x 5..9, y 0..3, z 0..2.4). Undo takes back that move.",
+ "wide": "@house is a group named \"house\", a box 4 m wide (x) by 3 m (y) by 2.4 m tall, corner at the origin. The last request was \"a house 4 meters wide\".",
+ "roomdoor": "@room is a closed room (group \"Wall\"), walls 0.2 m thick and 2.4 m high, centerline 6 m (x) by 4 m (y) from the origin. @door is a group named \"door\": a flat door panel 1 m wide, 2.1 m tall, 0.1 m thick on the south wall at x 2.5..3.5, y -0.05..0.05. South is -y, north is +y, west is -x, east is +x.",
+ "northwall": "@nwall is the north wall of a room as one flat vertical face in the plane y = 4, from x 0 (west end, the left end) to x 6 (east end) and z 0..2.4. South is -y, north is +y, west is -x, east is +x.",
+ "post": "@post is a group named \"Column\": a 0.3 m square column 3 m tall standing at the origin (centered on x 0, y 0)."
+}

@@ -9,8 +9,10 @@ impl Engine {
         Ok(match cmd {
             Command::Animate { path, fps, transition, delay, views, turntable, timeline, opts } => {
                 let fps = fps.clamp(1.0, 60.0);
+                // laid out, the video shows what the view shows
+                let shown = self.shown_model();
                 if timeline {
-                    let model = &self.model;
+                    let model: &Model = &shown;
                     let fs = crate::timeline::frames(model, &model.timeline, fps, &|d, t| timeline_sun(model, d, t))?;
                     if fs.is_empty() {
                         bail!("the timeline is empty: add a clip first");
@@ -18,7 +20,7 @@ impl Engine {
                     return Ok(json!({"path": path, "frames": crate::animate::animate_cams(model, &path, &crate::timeline::cameras(&fs), fps, &opts)?}));
                 }
                 let a = crate::animate::Anim { fps, transition, delay, views, turntable };
-                json!({"path": path, "frames": crate::animate::animate(&self.model, &path, &a, &opts)?})
+                json!({"path": path, "frames": crate::animate::animate(&shown, &path, &a, &opts)?})
             }
             Command::Blueprint { path, sheet, project, notes } => {
                 let project = project.unwrap_or_else(|| std::path::Path::new(&path).file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "Project".into()));

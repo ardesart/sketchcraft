@@ -38,38 +38,42 @@
   }
 }
 
-.layers li.dim .name {
-  color: var(--faint);
-}
+.layers {
+  li {
+    &.dim .name {
+      color: var(--faint);
+    }
 
-.layers li .eye {
-  @include grid-center-box(22px);
-  border-radius: $radius-sm;
-  color: var(--faint);
-  opacity: 0;
-}
+    .eye {
+      @include grid-center-box(22px);
+      border-radius: $radius-sm;
+      color: var(--faint);
+      opacity: 0;
+    }
 
-.layers li:hover .eye,
-.layers li.dim .eye {
-  opacity: 1;
-}
+    &:hover .eye,
+    &.dim .eye {
+      opacity: 1;
+    }
 
-.layers li .eye:hover {
-  background: var(--line);
-  color: var(--text);
-}
+    .eye:hover {
+      background: var(--line);
+      color: var(--text);
+    }
 
-.layers li.muted-row {
-  cursor: default;
-}
+    &.muted-row {
+      cursor: default;
+    }
+  }
 
-.layers .rename {
-  @include fill;
-  height: 22px;
-  padding: 0 6px;
-  border: 1px solid var(--accent);
-  border-radius: 5px;
-  outline: none;
+  .rename {
+    @include fill;
+    height: 22px;
+    padding: 0 6px;
+    border: 1px solid var(--accent);
+    border-radius: 5px;
+    outline: none;
+  }
 }
 
 .chip-tag {

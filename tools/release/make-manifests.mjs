@@ -25,7 +25,10 @@ try {
     return { signature: sig, url: base + encodeURIComponent(rel.split("/").pop()) };
   };
   const mac = entry(upd.macos);
-  const platforms = { "darwin-aarch64": mac, "darwin-x86_64": mac, "windows-x86_64": entry(upd.windows), "linux-x86_64": entry(upd.linux) };
+  const platforms = {
+    "darwin-aarch64": mac, "darwin-x86_64": mac, "windows-x86_64": entry(upd.windows),
+    "linux-x86_64": entry(upd.linux), "linux-aarch64": entry(upd["linux-arm64"]),
+  };
   const own = JSON.stringify({ version: v, notes: `SketchCraft ${v}`, pub_date: new Date().toISOString(), platforms }, null, 2);
 
   let legacy; // what ≤0.3.5 apps read at the old path

@@ -347,51 +347,53 @@
   margin-top: 12vh;
 }
 
-.palette input {
-  width: 100%;
-  font-size: 15px;
-  padding: 10px 12px;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--radius);
-  background: var(--bg);
-  color: var(--text);
-}
-
-.palette ul {
-  list-style: none;
-  margin: 8px 0 0;
-  padding: 0;
-  max-height: 50vh;
-  overflow: auto;
-}
-
-.palette li {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  padding: 7px 10px;
-  border-radius: calc(var(--radius) - 2px);
-  cursor: pointer;
-
-  > span:first-child {
-    font-weight: 500;
+.palette {
+  input {
+    width: 100%;
+    font-size: 15px;
+    padding: 10px 12px;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius);
+    background: var(--bg);
+    color: var(--text);
   }
 
-  .muted {
-    @include fill;
-    @include truncate;
+  ul {
+    list-style: none;
+    margin: 8px 0 0;
+    padding: 0;
+    max-height: 50vh;
+    overflow: auto;
   }
 
-  &.on {
-    @include accent-on;
-  }
-}
+  li {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    padding: 7px 10px;
+    border-radius: calc(var(--radius) - 2px);
+    cursor: pointer;
 
-.palette kbd {
-  font: 500 11px/1 "IBM Plex Mono", ui-monospace, monospace;
-  padding: 3px 5px;
-  border: 1px solid var(--line);
-  border-radius: $radius-xs;
+    > span:first-child {
+      font-weight: 500;
+    }
+
+    .muted {
+      @include fill;
+      @include truncate;
+    }
+
+    &.on {
+      @include accent-on;
+    }
+  }
+
+  kbd {
+    font: 500 11px/1 "IBM Plex Mono", ui-monospace, monospace;
+    padding: 3px 5px;
+    border: 1px solid var(--line);
+    border-radius: $radius-xs;
+  }
 }
 /* Outliner search */
 

@@ -1,4 +1,5 @@
 import { LocaleProvider, useLocale } from "./locale";
+import { groupRepairNotice, groupRepairOf } from "./grouprepair";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { UpdateCard, checkForUpdatesNow } from "./updater";
 import { ask, AskHost } from "./ask";
@@ -8,7 +9,7 @@ import { BuildTools, Sandbox } from "./buildpanels";
 import { ContextMenu, contextItems } from "./contextmenu";
 import { LocationDialog, SheetsDialog } from "./dialogs";
 import { EntityInfo } from "./entityinfo";
-import { Environments, Templates } from "./environments";
+import { Environments, Examples, Templates } from "./environments";
 import { Library } from "./library";
 import { Outliner } from "./outliner";
 import { RenderDialog } from "./renderdialog";
@@ -26,7 +27,9 @@ import { MatchPhoto, type PhotoMatch } from "./matchphoto";
 import { prepareImage } from "./textures";
 import { savedSettings, store } from "./skins";
 import { STYLE_KEY, STYLE_PRESETS, chosenStyle, readChosenStyle, startingStyles, styleForModel } from "./styledefaults";
+import { AiPanel } from "./aibox";
 import { panelTabs, readSideTab, shownTab, SIDE_TAB_KEY, stepTab, type SideTab } from "./sidetabs";
+import { labsAi } from "./labs";
 import { useLook } from "./uselook";
 import { CommandPalette, type Command } from "./palette";
 import { TOOL_INFO, WORKSPACES } from "./workspace";
@@ -55,10 +58,20 @@ import { VertexPaintPanel } from "./vertexpaintpanel";
 import { DEFAULT_VPAINT, effectiveRadius, sceneDiagonal, type VPaintSettings } from "./vertexpaint";
 import { DEFAULT_TPAINT, paintMaterialOf, type TPaintSettings } from "./texturepaint";
 import { exportTexture, TexturePaintPanel } from "./texturepaintpanel";
+import { editInPhotoCraft, photocraftHere } from "./photocraft";
+import { targetIds } from "./projection";
+import { fixCommand, fixSummary, type FixReply } from "./fixmodel";
+import { flattenCommand, flattenHeight, flattenSummary, flattenTargets, makeFacesCommand, makeFacesSummary } from "./smalltools";
+import { PrintCheckDialog } from "./printcheckdialog";
+import { CutPlanDialog } from "./cutplandialog";
+import { JoineryDialog } from "./joinerydialog";
+import { jointBoards, type JointKind } from "./joinery";
+import { stockUnits } from "./cutplan";
 import { PositionPanel } from "./positionpanel";
 import { UvPanel } from "./uvpanel";
 import { RestoreDialog } from "./restore";
 import { TimelinePanel } from "./timeline";
+import { LaidOutBar } from "./laidoutbar";
 import { LearnCenter, LessonCard, lessonsDone, useLearnCtx } from "./learn";
 
 const DEFAULT_BUILD: BuildSettings = {
@@ -201,7 +214,13 @@ function ModelingApp() {
   const [showTimeline, setShowTimeline] = useState(false);
   const [showLearn, setShowLearn] = useState(false);
   const [showAbout, setShowAbout] = useState(false);
+  const [showPrintCheck, setShowPrintCheck] = useState(false);
+  const [showCutPlan, setShowCutPlan] = useState(false);
+  const [joint, setJoint] = useState<{ kind: JointKind; boards: [number, number] } | null>(null);
   const { preference, setPreference, t: tr } = useLocale();
+  // the latest wording, for callbacks that must keep their identity
+  const trRef = useRef(tr);
+  trRef.current = tr;
   const [lesson, setLesson] = useState<string | null>(null);
   const [showWs, setShowWs] = useState(false);
   const [placing, setPlacing] = useState<string | null>(null);
@@ -280,6 +299,7 @@ function ModelingApp() {
       else if ((cmd.cmd === "undo" || cmd.cmd === "redo") && typeof r.origin === "string" && r.origin !== "you") say(`${cmd.cmd === "undo" ? "Undid" : "Redid"} a change by ${r.origin}`);
       else if (r.save_error) say(`Couldn't save your model: ${r.save_error}`, true);
       else if (Array.isArray(r.skipped_pictures) && r.skipped_pictures.length) say(skippedText(r.skipped_pictures as string[]), true);
+      else if (groupRepairOf(r)) say(groupRepairNotice(trRef.current, groupRepairOf(r)!, cmd.cmd === "insert_file" ? "part" : cmd.cmd === "restore_backup" ? "backup" : "file"), true);
       await refresh();
       return r;
     },
@@ -303,7 +323,7 @@ function ModelingApp() {
   useKeymap();
   const pluginCommandDefs = livePlugins.flatMap((pl) => pl.commands.map((c) => ({ id: `plugin:${pl.id}:${c.id}`, label: c.label, group: "Plugins" as const, key: "" })));
   useEffect(() => keymap.setExtra(pluginCommandDefs));
-  const { file, importFile, runTemplate } = useFileActions({ run, say, refresh, api, scene, figure, currentFile, setCurrentFile, setSel });
+  const { file, importFile, runTemplate, openExample } = useFileActions({ run, say, refresh, api, scene, figure, currentFile, setCurrentFile, setSel });
 
   // SubD: make one from a group or component (Subdivide…) or from a cube cage (SubD box); both end in SubD mode
   const [subdividing, setSubdividing] = useState<{ id: number; component: boolean } | null>(null);
@@ -326,6 +346,44 @@ function ModelingApp() {
   const askNewPaintTexture = () => {
     if (sel.faces.length + sel.groups.length + sel.instances.length === 0) return say(tr("tp.none"), true);
     chooseTool("tpaint");
+  };
+  const askPhotoCraft = () => {
+    if (!photocraftHere) return say(tr("pc.desktop"), true);
+    if (!scene) return;
+    void editInPhotoCraft(scene, targetIds(sel), sel, run, say, tr);
+  };
+  // Fix model / Check model: one engine command (one undo step); the toast says what it did
+  const askFixModel = async (dryRun: boolean) => {
+    const r = await run(fixCommand(sel, dryRun));
+    if (!r.ok) return;
+    const said = fixSummary(r as FixReply, tr);
+    say(said.text, said.bad, !dryRun && ((r.changes as number) ?? 0) > 0);
+  };
+  // Make faces: close every closed loop of loose lines (the ones picked, or all of them) with a face; one undo step
+  const askMakeFaces = async () => {
+    const r = await run(makeFacesCommand(sel));
+    if (!r.ok) return;
+    const said = makeFacesSummary(r, tr);
+    say(said.text, said.bad, ((r.created as number) ?? 0) + ((r.split as number) ?? 0) > 0);
+  };
+  // Joinery: two boards picked (click one, Shift-click the other), then a small prompt for the sizes
+  const askJoint = (kind: JointKind) => {
+    const boards = jointBoards(sel);
+    if (!boards) return say(tr("joint.pick"), true);
+    setJoint({ kind, boards });
+  };
+  // Flatten to height: ask for the height (in the model's units, 0 is the ground), move the picked points there; one undo step
+  const askFlatten = async () => {
+    if (!flattenTargets(sel).length) return say(tr("flatten.none"), true);
+    const units = scene?.units || "m";
+    const raw = await ask(tr("flatten.ask"), formatLength(0, units), tr("flatten.hint"), "flatten.ask");
+    if (raw == null) return;
+    const z = flattenHeight(raw, (text) => parseLength(text, units));
+    if (z == null) return say(tr("flatten.bad"), true);
+    const r = await run(flattenCommand(sel, z));
+    if (!r.ok) return;
+    const said = flattenSummary(r, formatLength(z, units), tr);
+    say(said.text, said.bad, !r.unchanged);
   };
   const askExportTexture = () => {
     const name = scene ? paintMaterialOf(scene, sel) ?? scene.materials.find((m) => m.texture && m.name.startsWith("Paint "))?.name ?? null : null;
@@ -364,13 +422,16 @@ function ModelingApp() {
     await openCage(g);
   };
 
+
   // a notice from the engine (a damaged model file was set aside...): say it once
   const lastNotice = useRef("");
   useEffect(() => {
     const n = scene?.notice;
     if (n && n !== lastNotice.current) {
       lastNotice.current = n;
-      say(n, true);
+      // groups repaired as a file came in: the same facts, in the person's language
+      const repair = groupRepairOf(scene?.notice_repair);
+      say(repair ? groupRepairNotice(trRef.current, repair, scene?.notice_repair?.what === "backup" ? "backup" : "file") : n, true);
     }
   }, [scene, say]);
 
@@ -400,6 +461,30 @@ function ModelingApp() {
     setTool(t);
     if (t !== "place") setPlacing(null);
   }, []);
+
+  // the parts laid out flat (from the menu, a plugin or an agent): the Select tool, so a click names a part, and
+  // all of them in view; going back with the bar or the menu, the camera as it was before (not after New or Open)
+  const laidOutNow = !!scene?.laid_out;
+  const laidOutBefore = useRef(laidOutNow);
+  const camBeforeLaidOut = useRef<ReturnType<ViewportApi["camera"]> | null>(null);
+  const backAsked = useRef(false);
+  useEffect(() => {
+    if (laidOutBefore.current === laidOutNow) return;
+    laidOutBefore.current = laidOutNow;
+    if (laidOutNow) {
+      chooseTool("select");
+      camBeforeLaidOut.current = api.current?.camera() ?? null;
+      api.current?.fit();
+    } else {
+      if (backAsked.current && camBeforeLaidOut.current) api.current?.goTo(camBeforeLaidOut.current);
+      camBeforeLaidOut.current = null;
+    }
+    backAsked.current = false;
+  }, [laidOutNow, chooseTool]);
+  const backFromLaidOut = useCallback(() => {
+    backAsked.current = true;
+    void run({ cmd: "lay_out_parts", on: false });
+  }, [run]);
   const { skin, wearSkin, wsId, layout, setLayout, ws, editWs, switchWs } = useLook({ tool, chooseTool, setStyles, setTab });
   // Layout: the paper covers the 3D view, which stays loaded (and paused) underneath
   const inLayout = wsId === "layout";
@@ -555,7 +640,7 @@ function ModelingApp() {
       { id: "file.saveas", label: "Save As…", hint: "File", run: () => file.save(true) },
       { label: "Restore from backup…", hint: "File · earlier copies of this model, and work set aside", run: () => setShowRestore(true) },
       { id: "file.import", label: "Import…", hint: "File · SketchUp, DWG/DXF, IFC, FBX, OBJ, point clouds", run: file.import },
-      ...(["glb", "fbx", "obj", "stl", "dae", "dxf", "dwg", "pdf", "ifc"] as const).map((k) => ({ label: `Export ${k.toUpperCase()}…`, hint: "File", run: () => file.export(k) })),
+      ...(["glb", "fbx", "obj", "stl", "3mf", "dae", "dxf", "dwg", "pdf", "ifc"] as const).map((k) => ({ label: `Export ${k.toUpperCase()}…`, hint: "File", run: () => file.export(k) })),
       { id: "file.render", label: "Render…", hint: "Photoreal render", run: () => setShowRender(true) },
       { id: "file.timeline", label: "Timeline (video)…", hint: "Turntables, walkthroughs, sun studies", run: () => setShowTimeline(true) },
       { label: "Drawing sheets (PDF)…", hint: "File", run: () => setShowSheets(true) },
@@ -607,8 +692,18 @@ function ModelingApp() {
         },
       },
       { id: "tools.positiontexture", label: "Position texture…", hint: "Tools · move, rotate, scale and skew the picture on the selected face (also right-click a textured face: Texture › Position)", run: askPosition },
+      { id: "tools.photocraft", label: "Edit texture in PhotoCraft…", hint: "Tools · open the selection's picture in PhotoCraft with its UV layout as a guide layer; save there and it comes back", run: askPhotoCraft },
       { id: "tools.newpainttexture", label: "New paint texture…", hint: "Tools · make a paint texture for the selected faces (unwraps them if needed), then paint on it with Texture Paint", run: askNewPaintTexture },
       { id: "file.exporttexture", label: "Export texture…", hint: "File · save the selected faces' picture (or the first paint texture) as a PNG", run: askExportTexture },
+      { id: "tools.fixmodel", label: "Fix model", hint: "Tools · repair the selection (or the whole model): close holes, turn reversed faces, join flat neighbours, remove repeated and inside faces and stray lines. One undo step", run: () => void askFixModel(false) },
+      { id: "tools.makefaces", label: "Make faces", hint: "Tools · close every closed loop of loose lines (the ones you picked, or all of them) with a face; a loop inside another becomes a hole. One undo step", run: () => void askMakeFaces() },
+      { id: "tools.flatten", label: "Flatten to height…", hint: "Tools · move the picked lines, faces or groups to one height (imported DWG/DXF linework drawn at odd heights); points that land together join. One undo step", run: () => void askFlatten() },
+      { id: "tools.checkmodel", label: "Check model", hint: "Tools · say what keeps the selection (or the whole model) from being a solid, without changing anything", run: () => void askFixModel(true) },
+      { id: "tools.cutplan", label: "Cut plan…", hint: "Tools · pack the cut list onto sheets and boards: cutting diagrams, stock and prices, a cost, and part labels to print", run: () => setShowCutPlan(true) },
+      { id: "tools.dado", label: "Dado…", hint: "Tools · Joinery · cut a groove in one of two touching boards where the other stands on it. One undo step", run: () => askJoint("dado") },
+      { id: "tools.rabbet", label: "Rabbet…", hint: "Tools · Joinery · cut a step along the edge of one of two touching boards where the other stands on it. One undo step", run: () => askJoint("rabbet") },
+      { id: "tools.tenon", label: "Tenon and mortise…", hint: "Tools · Joinery · a tenon on the end of one board and its mortise in the one it touches. One undo step", run: () => askJoint("tenon") },
+      { id: "tools.printcheck", label: "Print check…", hint: "Tools · is it solid, any thin walls or overhangs, the size in mm, then export 3MF or STL for a slicer", run: () => setShowPrintCheck(true) },
       { id: "tools.uveditor", label: "UV editor", hint: "Tools · a 2D view of the selected faces' UVs: mark seams, unwrap, pack, move islands, make the lightmap UVs", run: askUv },
       { id: "tools.projecttexture", label: "Project texture…", hint: "Tools · lay a picture on the selection: planar, box, cylinder or sphere", run: askProjection },
       { label: "Subdivide…", hint: `Tools · smooth the selected group or component into a SubD shape. ${SUBD_HOW}`, run: askSubdivide },
@@ -694,6 +789,8 @@ function ModelingApp() {
       api.current?.clearSection();
       setSection(false);
     },
+    laidOut: !!scene?.laid_out,
+    layOutParts: () => (scene?.laid_out ? backFromLaidOut() : void run({ cmd: "lay_out_parts", on: true })),
     toggleStyle: (k) =>
       setStyles((s) => (k === "backEdges" ? { ...s, backEdges: !s.backEdges, xray: false } : k === "notes" || k === "help" || k === "vertexColors" ? { ...s, [k]: s[k] === false } : { ...s, [k]: !s[k] })),
     setStyles: (patch) => setStyles((s) => ({ ...s, ...patch })),
@@ -729,6 +826,16 @@ function ModelingApp() {
       positionTexture: askPosition,
       uvEditor: askUv,
       newPaintTexture: askNewPaintTexture,
+      photocraft: askPhotoCraft,
+      fixModel: () => void askFixModel(false),
+      checkModel: () => void askFixModel(true),
+      printCheck: () => setShowPrintCheck(true),
+      cutPlan: () => setShowCutPlan(true),
+      dado: () => askJoint("dado"),
+      rabbet: () => askJoint("rabbet"),
+      tenon: () => askJoint("tenon"),
+      makeFaces: () => void askMakeFaces(),
+      flatten: () => void askFlatten(),
       plugins: () => (reloadPlugins(), setShowPlugins(true)),
       themes: () => setShowSkins(true),
       keys: () => setShowKeys(true),
@@ -753,9 +860,16 @@ function ModelingApp() {
 
   // the Vertical layout has one sidebar: the lower-right panel becomes its Properties tab
   const merged = layout === "side";
-  const tabs = panelTabs(wsId, layout);
+  // SketchCraft AI is in labs (labs.ts): hidden unless switched on
+  const aiOn = labsAi();
+  const tabs = panelTabs(wsId, layout, aiOn);
   const curTab = shownTab(tab, tabs);
   const showSide = ws.showLeft || (merged && ws.showRight);
+  // the top-bar SketchCraft AI button: show the side panel on its AI tab
+  const openAi = () => {
+    if (!showSide) editWs(merged ? { showLeft: true, showRight: true } : { showLeft: true });
+    chooseTab("ai");
+  };
   const chooseTab = (t: SideTab) => {
     setTab(t);
     if (merged) store.set(SIDE_TAB_KEY, t);
@@ -955,9 +1069,14 @@ function ModelingApp() {
           <button className="btn small ghost learn-btn" title="Lessons and demos: learn SketchCraft by doing" onClick={() => setShowLearn(true)}>
             Learn{lessonsDone().length === 0 && <i className="learn-dot" aria-label="(new)" />}
           </button>
+          {aiOn && (
+            <button className="btn small ghost ai-btn" data-testid="ai-btn" title="SketchCraft AI: ask for changes in plain words (local test)" onClick={openAi}>
+              SketchCraft AI
+            </button>
+          )}
           <button className="btn small ghost skin-btn" title="Themes: SketchCraft's colors, layout and icons" onClick={() => setShowSkins(true)}>
             <Icons.theme />
-            Themes
+            <span className="btn-label">Themes</span>
           </button>
           <button className="icon-btn" title={`Undo (⌘Z)${scene?.undo_origin && scene.undo_origin !== "you" ? `: the last step is from ${scene.undo_origin}` : ""}`} onClick={() => run({ cmd: "undo" })}>
             <Icons.undo />
@@ -967,7 +1086,7 @@ function ModelingApp() {
           </button>
           <input ref={fileRef} type="file" accept=".obj,.skp,.fbx,.dxf" hidden onChange={(e) => e.target.files?.[0] && importFile(e.target.files[0])} />
           <button className="btn primary" onClick={() => setShowRender(true)} title="A photoreal picture of this view">
-            <Icons.camera /> Render
+            <Icons.camera /> <span className="btn-label">Render</span>
           </button>
         </div>
       </header>
@@ -987,13 +1106,14 @@ function ModelingApp() {
         >
           {tabs.map((t) => (
             <button key={t} id={`side-tab-${t}`} role="tab" aria-selected={curTab === t} aria-controls="side-tabpanel" tabIndex={curTab === t ? 0 : -1} className={curTab === t ? "on" : ""} onClick={() => chooseTab(t)}>
-              {t === "outliner" ? "Outliner" : t === "library" ? "Library" : t === "pages" ? "Pages" : t === "properties" ? tr("tab.properties") : "Views"}
+              {t === "outliner" ? "Outliner" : t === "library" ? "Library" : t === "pages" ? "Pages" : t === "properties" ? tr("tab.properties") : t === "ai" ? tr("tab.ai") : "Views"}
               {t === "properties" && selCount > 0 && curTab !== "properties" && <i className="tab-dot" role="img" aria-label={tr("tab.hasSelection")} title={tr("tab.hasSelection")} />}
             </button>
           ))}
         </div>
         <div id="side-tabpanel" role="tabpanel" aria-labelledby={`side-tab-${curTab}`} className={curTab === "properties" ? "inspector-body" : "section grow"}>
           {curTab === "properties" && inspector}
+          {curTab === "ai" && <AiPanel scene={scene} run={run} refresh={refresh} say={say} importFile={importFile} />}
           {curTab === "pages" && <PagesPanel L={L} />}
           {scene && curTab === "outliner" && <Outliner scene={scene} sel={sel} setSel={setSel} run={run} byTag={!!styles.byTag} setByTag={(on) => setStyles((s) => ({ ...s, byTag: on }))} />}
           {scene && curTab === "library" && (
@@ -1036,6 +1156,10 @@ function ModelingApp() {
                 <summary>Environments</summary>
                 <Environments scene={scene} run={run} onToast={say} />
               </details>
+              <details className="panel-fold" open={scene.faces.length === 0 || undefined}>
+                <summary>Examples</summary>
+                <Examples onExample={(name, data) => void openExample(name, data)} />
+              </details>
               <details className="panel-fold">
                 <summary>Templates</summary>
                 <Templates onTemplate={runTemplate} />
@@ -1047,6 +1171,23 @@ function ModelingApp() {
       </aside>
 
       <main className="stage">
+        {/* phones held upright: show or hide the panels under the view, so the model can have the whole screen (CSS shows these only there) */}
+        <div className="panel-toggles" role="group" aria-label={tr("tab.panel")}>
+          {layout === "side" ? (
+            <button className={menuCtx.showLeft ? "on" : ""} aria-pressed={menuCtx.showLeft} onClick={() => menuCtx.togglePanel("left")}>
+              {tr("tab.panel")}
+            </button>
+          ) : (
+            <>
+              <button className={ws.showLeft ? "on" : ""} aria-pressed={ws.showLeft} onClick={() => menuCtx.togglePanel("left")}>
+                {tr("tab.objects")}
+              </button>
+              <button className={ws.showRight ? "on" : ""} aria-pressed={ws.showRight} onClick={() => menuCtx.togglePanel("right")}>
+                {tr("tab.properties")}
+              </button>
+            </>
+          )}
+        </div>
         <Viewport
           onHideHelp={() => {
             setStyles((s) => ({ ...s, help: false }));
@@ -1232,10 +1373,11 @@ function ModelingApp() {
         {showPlugins && <PluginsDialog list={plugins} reload={reloadPlugins} onClose={() => setShowPlugins(false)} onToast={say} commandsOf={(p) => livePlugins.find((x) => x.id === p.id)?.commands ?? p.commands} />}
         {pluginShown && (
           <ErrorBoundary onError={() => setPluginShown(null)} fallback={() => null}>
-            <PluginResultDialog result={pluginShown.result} plugin={pluginShown.plugin} onClose={() => setPluginShown(null)} onToast={say} />
+            <PluginResultDialog result={pluginShown.result} plugin={pluginShown.plugin} onClose={() => setPluginShown(null)} onToast={say} onCutPlan={() => (setPluginShown(null), setShowCutPlan(true))} />
           </ErrorBoundary>
         )}
         {showWs && <WorkspaceDialog ws={ws} onChange={editWs} onReset={() => editWs(null)} onClose={() => setShowWs(false)} />}
+        {scene?.laid_out && <LaidOutBar laid={scene.laid_out} selected={selIds(sel)} units={scene.units || "m"} onBack={backFromLaidOut} />}
         {toast && (
           <div className={`toast ${toast.bad ? "bad" : ""}`}>
             {toast.text}
@@ -1265,6 +1407,27 @@ function ModelingApp() {
             component={subdividing.component}
             onGo={doSubdivide}
             onClose={() => setSubdividing(null)}
+          />
+        )}
+        {joint && scene && (
+          <JoineryDialog
+            kind={joint.kind}
+            boards={joint.boards}
+            names={joint.boards.map((id) => scene.groups.find((g) => g.id === id)?.name ?? scene.instances.find((i) => i.id === id)?.name ?? `#${id}`) as [string, string]}
+            units={stockUnits(scene.units || "m")}
+            run={run}
+            onSay={say}
+            onClose={() => setJoint(null)}
+          />
+        )}
+        {showCutPlan && <CutPlanDialog sel={sel} units={scene?.units || "m"} run={run} onSay={say} onClose={() => setShowCutPlan(false)} />}
+        {showPrintCheck && (
+          <PrintCheckDialog
+            sel={sel}
+            run={run}
+            onFix={() => askFixModel(false)}
+            onSelect={(s) => setSel({ ...EMPTY, ...s })}
+            onClose={() => setShowPrintCheck(false)}
           />
         )}
         {showAbout && <AboutDialog onClose={() => setShowAbout(false)} />}

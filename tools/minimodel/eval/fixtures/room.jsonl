@@ -1,0 +1,2 @@
+# @room is a group named "Wall": a closed room, walls 0.2 m thick and 2.4 m high, centerline 6 m (x) by 4 m (y) from the origin (outer size 6.2 x 4.2).
+{"cmd":"wall","points":[[0,0,0],[6,0,0],[6,4,0],[0,4,0]],"closed":true,"height":2.4,"as":"room"}

@@ -19,19 +19,20 @@
   box-shadow: var(--shadow);
 }
 
-.menu button,
-.dropdown-menu button {
-  @include flex-between;
-  gap: 12px;
-  width: 100%;
-  padding: 7px 10px;
-  border-radius: 7px;
-  text-align: left;
-}
+.menu,
+.dropdown-menu {
+  button {
+    @include flex-between;
+    gap: 12px;
+    width: 100%;
+    padding: 7px 10px;
+    border-radius: 7px;
+    text-align: left;
 
-.menu button:hover,
-.dropdown-menu button:hover {
-  @include accent-on;
+    &:hover {
+      @include accent-on;
+    }
+  }
 }
 
 .menu button.danger {

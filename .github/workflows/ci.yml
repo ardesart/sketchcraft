@@ -7,6 +7,9 @@ on:
   pull_request:
   # The release workflow runs these same checks before building anything.
   workflow_call:
+  # By hand (Actions › CI › Run workflow, or `gh workflow run ci.yml --ref <branch>`): the fast jobs plus
+  # the Linux arm64 build, on any branch.
+  workflow_dispatch:
 
 # Read-only token: nothing in CI writes to the repository.
 permissions:
@@ -152,6 +155,66 @@ jobs:
           echo "browser suites: $RESULT"
           [ "$RESULT" = "success" ]
 
+  # Linux arm64: the engine tests on an arm64 runner, then the arm64 installers built the way release.yml builds
+  # them (same Ubuntu, same packages, a throwaway update key), so an arm64 problem shows up on staging, not on
+  # the release tag. Runs where the full browser suite runs, and when CI is started by hand. No secrets,
+  # read-only token.
+  linux-arm64:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.ref == 'refs/heads/staging' || github.ref == 'refs/heads/main' ||
+      startsWith(github.ref, 'refs/tags/') ||
+      github.base_ref == 'staging' || github.base_ref == 'main'
+    runs-on: ubuntu-22.04-arm
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Linux packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - uses: dtolnay/rust-toolchain@263313d2989f864a2b8613f97277288638e7d8f8 # rust 1.99.1 (its version branch)
+      - name: Engine tests (arm64)
+        run: cargo test --locked -p sketchcraft-core
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - name: App dependencies
+        working-directory: app
+        run: npm ci --ignore-scripts
+      - name: Throwaway update key
+        working-directory: app
+        run: npx --no-install tauri signer generate --ci -p "" -w "$RUNNER_TEMP/throwaway.key"
+      - name: Build the arm64 installers
+        working-directory: app
+        run: |
+          TAURI_SIGNING_PRIVATE_KEY="$RUNNER_TEMP/throwaway.key" TAURI_SIGNING_PRIVATE_KEY_PASSWORD="" \
+            npx --no-install tauri build -- --locked
+      - name: The release's arm64 file names, built for arm64
+        run: |
+          set -euo pipefail
+          v=$(node -p "require('./app/src-tauri/tauri.conf.json').version")
+          p=$(node -p "require('./app/src-tauri/tauri.conf.json').productName")
+          for n in "${p}_${v}_aarch64.AppImage" "${p}_${v}_arm64.deb" "${p}-${v}-1.aarch64.rpm"; do
+            f=$(find target -path '*/release/bundle/*' -type f -name "$n" | head -1)
+            [ -n "$f" ] || { echo "::error::$n was not built"; exit 1; }
+            ls -la "$f"
+          done
+          file target/release/sketchcraft-app | tee /dev/stderr | grep -q 'ARM aarch64'
+          mkdir -p arm64-installers
+          find target -path '*/release/bundle/*' -type f \( -name '*.AppImage' -o -name '*.deb' -o -name '*.rpm' \) -exec cp {} arm64-installers/ \;
+      # For trying a build on a real ARM machine (`gh run download <run> -n linux-arm64-installers`). Unsigned
+      # test builds: releases are made by release.yml, never from here.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: linux-arm64-installers
+          path: arm64-installers/*
+          if-no-files-found: error
+          retention-days: 7
+
   # (The scale-figure generator's `--check` is not run here: its sine and cosine come out a last digit
   # different on Linux than on a Mac for four of the figures, so the check is only stable on the machine
   # that made the files. Run `python3 tools/scale_figures/scale_figures.py --check` before changing them.)
@@ -160,12 +223,28 @@ jobs:
   # shipped npm packages have no known high advisory, and no lockfile takes code from anywhere but
   # the crates.io / npm registries. (`cargo audit` isn't run here: it would mean installing an
   # unpinned tool in CI; run it by hand before a release.)
+  # Also: no commit in a pull request names an AI assistant as a co-author (see CONTRIBUTING.md, "Pull requests").
   audit:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0
+      - name: No AI co-author trailers in the PR's commits
+        if: github.event_name == 'pull_request'
+        run: |
+          # the checkout is the merge commit: its second parent is the PR head, its first the base
+          bad=0
+          for c in $(git rev-list HEAD^1..HEAD^2); do
+            if git log -1 --format=%B "$c" | grep -qiE '^co-authored-by:.*(claude|anthropic)'; then
+              git log -1 --format='%h %s' "$c"; bad=1
+            fi
+          done
+          if [ "$bad" = 1 ]; then
+            echo "::error::a commit names an AI assistant as a co-author. Remove the Co-authored-by line (git commit --amend, or git rebase -i) and push again; see CONTRIBUTING.md"
+            exit 1
+          fi
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22

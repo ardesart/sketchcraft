@@ -6,7 +6,7 @@
 //!  - A line that closes a flat loop of lines makes a face.
 
 use crate::geom;
-use crate::model::{Face, Id, Model, WELD};
+use crate::model::{pairs, Face, Id, Model, WELD};
 use anyhow::Result;
 use glam::DVec3;
 use std::collections::{BTreeSet, HashMap};
@@ -23,6 +23,7 @@ impl Model {
     pub fn edge_through(&self, p: DVec3) -> Option<Id> {
         let g = self.active_group;
         self.edges.iter().find_map(|(&id, e)| {
+            crate::deadline::poll();
             if e.group != g {
                 return None;
             }
@@ -68,10 +69,46 @@ impl Model {
         v
     }
 
+    /// Make a new loop share whole edges with what it touches: a corner of `lp`
+    /// in the middle of an existing edge splits that edge (in every face using
+    /// it), and a vertex already lying along one of `lp`'s sides joins the loop.
+    /// A rectangle drawn at a face's edge would otherwise leave the faces across
+    /// that edge with the long, unsplit edge, and the solid would count as open.
+    pub(crate) fn stitch_loop(&mut self, lp: &[Id]) -> Vec<Id> {
+        for &v in lp {
+            let p = self.p(v);
+            if let Some(e) = self.edge_through(p) {
+                self.split_edge(e, p);
+            }
+        }
+        let g = self.active_group;
+        let mut out = Vec::with_capacity(lp.len());
+        for (a, b) in pairs(lp) {
+            out.push(a);
+            let (pa, pb) = (self.p(a), self.p(b));
+            let ab = pb - pa;
+            let mut along: Vec<(f64, Id)> = self
+                .vertices
+                .iter()
+                .filter(|(id, v)| v.group == g && !lp.contains(id))
+                .filter_map(|(&id, v)| {
+                    let t = (v.p - pa).dot(ab) / ab.length_squared();
+                    (t > 1e-9 && t < 1.0 - 1e-9 && (pa + ab * t).distance(v.p) < ON_EDGE).then_some((t, id))
+                })
+                .collect();
+            along.sort_by(|x, y| x.0.total_cmp(&y.0));
+            out.extend(along.into_iter().map(|(_, id)| id));
+        }
+        out
+    }
+
     /// A vertex at `p`: an existing one, one splitting an edge, or a new one.
     pub fn vertex_on(&mut self, p: DVec3) -> Id {
         let g = self.active_group;
-        if let Some((&id, _)) = self.vertices.iter().find(|(_, v)| v.group == g && v.p.distance(p) < WELD) {
+        if let Some((&id, _)) = self.vertices.iter().find(|(_, v)| {
+            crate::deadline::poll();
+            v.group == g && v.p.distance(p) < WELD
+        }) {
             return id;
         }
         match self.edge_through(p) {
@@ -84,12 +121,16 @@ impl Model {
     /// so a transom across a mullion makes four panes. Each piece then splits
     /// edges it lands on, cuts faces it crosses edge-to-edge, and closes loops.
     pub fn draw_line(&mut self, p: DVec3, q: DVec3) -> Result<LineResult> {
+        self.check_deadline()?;
         let g = self.active_group;
         let mut cuts: Vec<(f64, DVec3)> = self
             .edges
             .values()
             .filter(|e| e.group == g)
-            .filter_map(|e| crossing(p, q, self.p(e.a), self.p(e.b)))
+            .filter_map(|e| {
+                crate::deadline::poll();
+                crossing(p, q, self.p(e.a), self.p(e.b))
+            })
             .collect();
         cuts.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
         cuts.dedup_by(|a, b| a.1.distance(b.1) < WELD);
@@ -120,6 +161,7 @@ impl Model {
         // a chord across an existing face?
         let mid = (self.p(a) + self.p(b)) * 0.5;
         let chord = self.faces.iter().find_map(|(&id, f)| {
+            crate::deadline::poll();
             let n = f.outer.len();
             let ia = f.outer.iter().position(|&v| v == a)?;
             let ib = f.outer.iter().position(|&v| v == b)?;
@@ -173,6 +215,7 @@ impl Model {
         let g = self.active_group;
         let mut adj: HashMap<Id, Vec<Id>> = HashMap::new();
         for e in self.edges.values().filter(|e| e.group == g) {
+            crate::deadline::poll();
             adj.entry(e.a).or_default().push(e.b);
             adj.entry(e.b).or_default().push(e.a);
         }
@@ -192,6 +235,7 @@ impl Model {
             if *budget == 0 || path.len() > 14 || out.len() > 64 {
                 return;
             }
+            crate::deadline::poll();
             *budget -= 1;
             let cur = *path.last().unwrap();
             for &nx in adj.get(&cur).map(|v| v.as_slice()).unwrap_or(&[]) {
@@ -234,6 +278,18 @@ impl Model {
 
         let mut made: Vec<Id> = Vec::new();
         let mut used: Vec<Vec<DVec3>> = Vec::new();
+        // each face's plane, worked out once per set of faces (add_face can split or replace faces, so it is
+        // worked out again after each loop is added, at most twice): the cover test below only looks at faces in the loop's plane
+        let plane_cache = |m: &Model| -> Vec<(Id, DVec3, DVec3)> {
+            m.faces
+                .iter()
+                .map(|(&id, f)| {
+                    crate::deadline::poll();
+                    (id, geom::newell(&m.pts(&f.outer)), m.p(f.outer[0]))
+                })
+                .collect()
+        };
+        let mut planes: Vec<(Id, DVec3, DVec3)> = if cands.is_empty() { Vec::new() } else { plane_cache(self) };
         for (_, c) in cands {
             if made.len() == 2 {
                 break;
@@ -251,11 +307,13 @@ impl Model {
             // and must not cover an existing coplanar face. (A loop drawn
             // inside a face is fine: add_face makes it a hole in that face
             // plus a new face, like a rectangle drawn on a wall.)
-            let covers = self.faces.values().any(|f| {
-                let fp = self.pts(&f.outer);
-                if geom::newell(&fp).dot(n).abs() < 1.0 - 1e-9 || (fp[0] - pts[0]).dot(n).abs() > 1e-6 {
+            let covers = planes.iter().any(|(id, fnorm, fp0)| {
+                crate::deadline::poll();
+                if fnorm.dot(n).abs() < 1.0 - 1e-9 || (*fp0 - pts[0]).dot(n).abs() > 1e-6 {
                     return false;
                 }
+                let Some(f) = self.faces.get(id) else { return false };
+                let fp = self.pts(&f.outer);
                 // covered = its whole outline is within the new loop
                 geom::to2d(&fp, u, v).iter().all(|q| geom::inside_or_on(*q, &poly)) && geom::inside(geom::to2d(&[interior_point(&fp, n)], u, v)[0], &poly)
             });
@@ -263,6 +321,9 @@ impl Model {
                 continue;
             }
             if let Ok(id) = self.add_face(c.clone()) {
+                if made.is_empty() {
+                    planes = plane_cache(self);
+                }
                 made.push(id);
                 used.push(pts);
             }
@@ -273,7 +334,7 @@ impl Model {
 
 /// Where segment p-q crosses segment a-b in its interior (parameter along
 /// p-q, and the point), if they actually meet.
-fn crossing(p: DVec3, q: DVec3, a: DVec3, b: DVec3) -> Option<(f64, DVec3)> {
+pub(crate) fn crossing(p: DVec3, q: DVec3, a: DVec3, b: DVec3) -> Option<(f64, DVec3)> {
     let (d1, d2, r) = (q - p, b - a, p - a);
     let (aa, ee, f) = (d1.dot(d1), d2.dot(d2), d2.dot(r));
     let (c, bb) = (d1.dot(r), d1.dot(d2));

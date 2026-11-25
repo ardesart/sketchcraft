@@ -6,6 +6,197 @@ What changed in each SketchCraft release, newest first. The format follows
 
 ## [Unreleased]
 
+## [0.3.10] - 2026-11-23
+
+### Added
+- **Cut plan: cutting diagrams, labels and cost.** **Tools › Cut plan…** (also a button on the Cut list's result) packs
+  your parts onto real sheets and boards and shows each sheet drawn to scale with every part numbered, how much is waste,
+  and what to buy. Set the saw kerf, the trim, the sheet size, the board lengths you can buy, and a price per sheet, per
+  board or per board foot for each material, plus whether it has a grain (so parts are not turned the wrong way). All of
+  it is saved with the model. **Export diagrams** writes a PDF (or SVG) with a page per sheet, and **Print labels**
+  writes a sheet of part labels with the number, name, size, material, which sheet it is cut from and a grain arrow.
+  Agents get `cut_stock`, a read-only `cut_plan`, `export_cut_diagrams` and `export_cut_labels`. (Makers, #24)
+- **CNC files and joinery for the Cut plan.** **Cut plan… › CNC files** (the **Export CNC files…** button) saves a
+  .zip with one DXF drawing per part, in millimeters and numbered like the cut plan (01-Side-left.dxf...). Each part is
+  drawn flat: its edge on layer OUTLINE, holes that go all the way through on INSIDE, and dados and rabbets on layers
+  named by depth (POCKET_6.0mm). Choose the cutter's diameter, and tick **Dog-bone corners** to add a round relief at
+  every inside corner so a round bit can reach it. **Tools › Joinery** cuts a **Dado**, a **Rabbet** or a **Tenon and
+  mortise** between two boards that touch (pick both, say which one is cut, and leave sizes blank for sensible
+  defaults); each is one undo step, and the cut list reports the boards' new sizes (a tenon makes its board longer by the
+  tenon). Agents get `export_cnc` (one .zip in their workspace), `dado`, `rabbet` and `tenon`. (Makers, #24)
+- **An example to open: the Townhouse.** **Library › Examples** has a finished two-storey townhouse with its fixtures,
+  to open, walk through and take apart. It takes the place of the model you have open (after asking; that one is kept
+  in File › Restore from backup…), opens as Untitled, and File › Save As… keeps a copy. `open` takes a model's
+  contents (`data`) as well as a path; it is checked exactly like a file.
+- **Curve, Make faces and Flatten to height.** The new **Curve** tool (key **U**, on the Draw menu) draws a smooth curve
+  through the points you click: double-click or press Enter to finish, click the first point to close it, and type a
+  number to say how many pieces each stretch is cut into. For imported DWG and DXF linework, **Tools › Flatten to
+  height…** moves what you picked to one height and joins the points that land together, and **Tools › Make faces**
+  closes every closed loop of loose lines with a face, with loops inside loops becoming holes (loops that are not flat
+  are skipped and counted). Each is one Undo. Agents get `spline`, `bezier` (cubic curves from handles),
+  `make_faces` and `flatten`. (Makers, #25)
+- **Print check and 3MF export.** **Tools › Print check…** tells you if a model is ready for a slicer: is it a closed
+  solid, are any walls thinner than your limit, which faces overhang and need supports, how big it is in millimetres
+  (with a nudge when it looks like the wrong units), and whether it fits your printer. If it is not solid, **Fix model**
+  is one click away, and buttons pick the problem faces so you can see them. **File › Export › 3MF** writes a file that
+  carries its units, one object per group and component, next to the existing STL. Agents get a read-only
+  `print_check` and `export_3mf`. (Makers, #23)
+- **Fix model.** **Tools › Fix model** cleans up and makes a messy model solid in one step: it closes holes, turns
+  reversed faces back, joins flat faces that were split, and removes repeated faces, faces trapped inside a solid, fins
+  on shared edges and stray lines. It works on what you picked, or the whole model, and one Undo takes it all back.
+  **Tools › Check model** only tells you what is wrong. Agents get `fix_model` (with a look-first `dry_run`) and
+  `check_solid`, each change listed with its ids and where it is. (Makers, #22)
+- **Name things in Properties.** Select a group or component and type its name in **Properties › Name**; select loose
+  faces and naming them groups them under that name.
+- **SketchCraft AI (labs, hidden).** The local AI box is in the app but switched off while the model is trained and
+  tested: the AI tab and top-bar button appear only with `localStorage.setItem("sketchcraft.labs.ai", "1")`. It runs a
+  model on this machine (loopback only), as an agent limited to modeling commands, one undo step per answer, and keeps a
+  debug log of every turn in `AI debug/` beside the model.
+- **The cut list knows lumber.** A board whose cross-section is real dimensional lumber shows as **2×4**, **1×6**,
+  **4×4** and so on (a 2×4 is 1½" × 3½"; either way round), in the list and in what to buy, and every board line has
+  its **board feet**: by the nominal size for dimensional lumber, as lumber yards price it (an 8 ft 2×4 is 5.33), by the
+  actual size for anything else, with a total. Sheet goods are left out of both. (Makers, #24)
+- **Edit texture in PhotoCraft.** Select faces and choose **Tools › Edit texture in PhotoCraft…**: their picture opens
+  in PhotoCraft with the UV layout on top as a guide layer. Paint, add layers, use filters; each time you save there
+  (⌘S / Ctrl+S), the picture comes back onto the model, one Undo per save. Faces with only a colour first get a picture
+  of their own (unwrapped if needed, their look kept). The file is an OpenRaster `.ora` in a `Textures` folder beside
+  the model, so the next edit reopens it with your PhotoCraft layers. Desktop only; needs PhotoCraft (ArtCraft
+  Launcher). Adjustment layers, styles and masks have to be merged before saving, since OpenRaster can't hold them.
+- **Android tablets (early).** SketchCraft builds for Android: the same engine and interface as on a computer, made
+  for tablets in either orientation. One finger draws (tap or drag), two fingers orbit, pinch zooms; the model is
+  kept in the app's own folder, and the launcher icon is the beaver. Builds are a debug APK for testing for now;
+  phones will get their own touch-first interface later. Building it: docs/dev/android.md. (#125)
+- **Linux on arm64.** Releases now include ARM builds for Linux (Raspberry Pi 5, Ampere servers, Snapdragon
+  laptops): `SketchCraft_…_aarch64.AppImage`, `…_arm64.deb`, `…-1.aarch64.rpm` and `sketchcraft-cli-linux-arm64.zip`,
+  built natively on the same Ubuntu as the x64 build, signed for auto-update, and listed in the checksums and build
+  attestations. CI runs the engine tests and builds those installers on arm64 before each release. (#160)
+- **Help › About links the website,** [trysketchcraft.com](https://trysketchcraft.com/), above the source code, license and changelog.
+- **French, Spanish, German, Portuguese and Simplified Chinese.** **View › Language** now offers **Français**,
+  **Español**, **Deutsch**, **Português** (Brazilian) and **简体中文** beside English and Italian, and a new install starts
+  in the system's language when there is a catalog for it (Traditional Chinese systems stay in English until there is a
+  catalog for them). Chinese contributed by fanhui (#161); the others were asked for in #158, and corrections from
+  native speakers are welcome.
+
+### Changed
+- **Print check measures every wall.** Print check used to measure wall thickness at only some places on any model
+  over a few thousand triangles, so it could not say "Ready to print" for them. It now indexes the model and measures
+  every triangle up to 600,000 of them (a 200,000-triangle model takes well under a few seconds); only a model past
+  that is sampled, and says so.
+
+### Fixed
+- **SketchUp 6 files with guide lines open.** A SketchUp 6 model with a guide line in it (a "Shed" from 2007) failed
+  with "this SketchUp file looks damaged": the reader didn't know guide lines and could not read the model's list past
+  the first one. It now reads them and goes on (guide lines themselves are not brought in), so the model opens with
+  all its parts and dimensions. Thanks to Tim Rowledge for the file. (Refs #200)
+- **SketchUp 8 files open with all their components.** A SketchUp 8 model built from components inside components (a
+  "Rustic Pine Bed") opened with only a couple of them: the reader expected an ID at the end of each placement that only
+  SketchUp 2013 and later write, so it lost every placement after the first in each list. Thanks to Tim Rowledge for
+  the file. (Refs #201)
+- **SketchUp 2017 files with dimensions open.** A SketchUp 2017 model whose own list starts with a dimension failed
+  with "this SketchUp file looks damaged": the reader didn't take a list that starts with a dimension or a text for the
+  model's, and lost its way inside it. It also now reads what 2017 files add to a dimension (the components between it
+  and the geometry it measures, an end on an edge), section planes, attribute values that are a length or empty, and
+  groups holding only lines. Dimensions measured to geometry inside a component are still left out, and counted.
+  (Refs #187)
+- **SketchUp 7 files with components open, with all their components.** Files saved by SketchUp 7 and earlier failed
+  with "this SketchUp file looks damaged" when they placed components, or opened with most of the placed components
+  missing. The reader expected an ID at the end of each placement that only later versions write, and a model list
+  holding nothing but placed components could run out the reader's budget. Thanks to Tim Rowledge for the file.
+  (Refs #188)
+- **Soften takes a group.** `soften` with a group softens the edges of every face inside it (nested groups too); it
+  used to refuse a group as "not an edge or face".
+- **SketchUp files open on Android.** File › Open and File › Import on the phone greyed out `.skp` files (Android
+  has no file type for them) and, when one was picked anyway, handed the app a `content://` link it tried to read as an
+  OBJ. The phone now picks through the app's own file chooser, which reads the file whatever its type, so `.skp`,
+  `.fbx`, `.dxf` and `.obj` files import. Opening `.sketchcraft` files and importing scans or IFC on the phone still
+  need a path and say so. (Refs #125)
+- **Phones held upright show the model.** The side panels (248 and 272 px) left a 412 px-wide phone no room for
+  the 3D view in portrait. On narrow touch screens the view now takes the top of the screen and the panels share the
+  space under it. Computers and landscape are unchanged. (Refs #125)
+- **Objects and Properties switches on the phone.** In portrait, two switches at the bottom left of the view show
+  and hide the panels, so the model can have the whole screen. (Refs #125)
+- **Plugins work on macOS and Linux again.** Before running a plugin, SketchCraft checks that the plugin sandbox can't
+  reach the network or load outside code. On WebKit (the macOS app and the Linux builds) that check waited for
+  violation reports WebKit never sends from inside a worker, so it decided the sandbox was open and turned plugins off
+  with a confusing "security policy doesn't block fetch, import, eval" message, though the sandbox was holding. The
+  check now judges each probe by whether it was actually blocked, and if plugins ever do have to stay off, the message
+  says so plainly and that everything else still works.
+
+### Security
+- **WildLeopard review of 0.3.10.**
+  - Work limits: curves from plugins and agents are limited by how many edges they make, and a curve that crosses itself
+    many times is refused, so a long curve can't freeze the app. Long curves are drawn in one pass.
+  - Fix model is much faster on big models: flat areas are joined in one pass and loose lines are cleared in one sweep,
+    and a very long list of loose lines is counted instead of listed one by one.
+  - Parts, Cut plan, Parts layout, CNC files and Lay out parts are fast on models with thousands of groups, and a Cut
+    plan asked of an absurd number of parts says so before it starts.
+  - Soften and Edge style ignore repeated ids, Soften coplanar is fast on big flat models, and drawing a polygon or
+    pushing and pulling a face with many corners is no longer slowed by the size of the model.
+  - Lay out parts: if a plugin or an agent switches the view on, your own next edit switches it off instead of being
+    refused.
+  - 3MF export cleans part names of characters XML can't hold. Print check no longer calls a big model "ready" when it
+    could only check its walls at some places, and says so.
+  - Editing a texture in PhotoCraft is safer with project folders from other people: SketchCraft no longer writes through
+    links in the Textures folder, and reads back a limited number of layers. PhotoCraft edits are recognised reliably
+    after updates: layers you made are kept, with no move to a backup on the first run after an update.
+  - The SketchCraft AI box cleans names from the model before the local model reads them, and its debug log has a size
+    limit and keeps only recent days.
+  - The plugin safety check counts a probe as blocked only when the policy blocked it, not for any error, and a bare
+    "load failed" counts only when the window's own policy was seen forbidding that load.
+  - PhotoCraft reads its small bookkeeping file with a size limit and without following links. The AI box also drops
+    hidden text characters from names and won't append to a debug file that has other links.
+  - Updated a dependency (`cookie`) to its fixed release.
+  - Android: the app shares less through its file provider.
+  - More work limits: CNC files take a limited number of parts and are fast on big models; a curve or line from a plugin
+    or an agent that crosses what is already drawn many times is refused (and any long drawing is stopped and put back);
+    Print check stays quick on parts stacked in one place and says when it could only check some places; a list of ids
+    names each thing once; and placing many components one after another is much faster (the undo list is no longer
+    re-measured on every step).
+  - Fix model joins a flat grid imported from a DXF into one face every time, and a plugin asking for Lay out parts again
+    no longer takes over a view you switched on.
+  - A model whose groups loop back on themselves opens safely: the loop is broken and you are told, instead of copying
+    the group crashing the app. Grouping the group you are working in is refused, and copying a very deeply nested group
+    works. Duplicating thousands of groups at once is fast, and a plugin or agent that asks for too much copying or
+    solid work is stopped and put back. Solid tools treat a repeated id as one, a curve that crosses itself many times is
+    refused even when other lines are nearby, the undo list keeps less memory for big pictures, and the SketchCraft AI box
+    also drops invisible filler characters from names.
+  - Groups can be nested up to 256 levels (far more than any real model); a file nested deeper opens with the extra
+    levels brought up to the limit and tells you, and the Outliner draws any nesting without trouble. Opening a file
+    with very many looping groups is fast, and the notice names the groups it repaired in your language, also for a
+    restored backup or an inserted part. Making a component, exploding it and deleting many lines are fast on big models
+    and stop cleanly when a plugin or agent takes too long. Selecting a group and a group inside it, then Duplicate,
+    copies the outer group once with everything in it. One big solid operation from a plugin or agent is now stopped and
+    put back instead of holding gigabytes of memory.
+  - Bevel and Round are much faster on shapes with many edges (a 100-sided prism, all edges, takes a fraction of a
+    second), and Bevel, Slice and the joinery cuts from a plugin or agent are stopped and put back when they take too
+    long or grow too big. A very large model (tens of thousands of groups) reaches the window quickly, and the Outliner
+    shows a limited number of rows with a translated "more rows" line (search to reach the rest). Copying a face together
+    with its group copies it once, and hidden characters in group names no longer reach notices or replies.
+  - Every command an agent or a plugin runs now has a time limit, and is undone if it runs out; a whole call from an agent
+    has a limit too, and is undone as a whole if it runs out, so many quick commands can't add up to minutes. Your own
+    commands have no limit. Intersect is fast on big models and a sweep (Follow me) too large for the model is refused
+    before any of it is built. Text sent to an agent drops hidden characters (the stored names are unchanged), and Flip
+    and Bevel are quicker on big models.
+  - Intersect works again on many overlapping solids (a stale entry in a cache stopped it).
+  - More hardening of those limits: a call that runs out of time can no longer discard what you saved in the app while it ran
+    (it is taken back step by step instead, and a backup is kept first); the clock is checked before every command of a
+    call, a call holds at most 1,000 commands and a plugin run at most 10,000 and 30 seconds of work, and a call is saved
+    once instead of after every command. Reports, IFC export, Reverse, Paint, Move, Make component and Bevel are fast on
+    models with thousands of groups, pictures drawn for a plugin or an
+    agent are limited, and line breaks no longer get through in names.
+  - Saving the model is safer when several programs edit it: every writer takes a lock and checks, right before the file
+    is replaced, that nobody else saved first, and a call from an agent that runs out of time is now taken back exactly
+    (only what the call changed, never your own saves, however big the call) and tells the agent plainly when part of it
+    could not be. After an agent's save the app runs your next step again by itself instead of asking you to repeat it,
+    files set aside are private to you, the notice says whose work was set aside, a backup is kept at the start of a long
+    agent call, and Vertex colors on thousands of groups is fast.
+  - Hardening of that saving: your saved work is never replaced when an agent's work can't be set aside first (the notice
+    says so, and the agent is told plainly), a call that runs out of time is taken back even while you save every second or
+    two, and you are told when it could not be fully taken back. Files set aside get a new name each time, never follow a
+    link, and work with very long model names; backups and copies of unreadable files are private to you; a broken lock
+    file is repaired (or you are told once that none can be used); and a file rewritten in place with its old time is
+    noticed.
+
 ## [0.3.9] - 2026-11-20
 
 ### Added
@@ -152,9 +343,27 @@ What changed in each SketchCraft release, newest first. The format follows
   ellipsis before it can crowd the menus. Wider windows look as before.
 - Security: hardened limits on texture painting, UV editing and texture export (WildLeopard).
 
+### Security
+- **WildLeopard review of 0.3.9.**
+  - Texture coordinates: UV and texture commands refuse numbers that aren't real numbers, so a
+    model you save always opens again.
+  - Texture painting: each stroke has a work budget, and painting keeps to the 4,096-pixel
+    picture limit; starting a paint texture no longer decodes every picture in the model.
+  - Work limits: packing UVs, painting across faces, vertex paint and joining many points in one
+    spot all have limits, so a very big model or a hostile command can't freeze the app.
+  - Size and undo: the texture, UV and vertex colour data on each face counts toward the model's
+    size, growth and undo limits.
+  - Export: texture files written beside an export can't overwrite each other after their names
+    are cleaned.
+  - Soften and edge style on a list of faces no longer slow down sharply on big models.
+
 ## [0.3.8] - 2026-11-18
 
 ### Added
+- **Build a whole house from a room list.** `floorplan_build` (for AI agents and plugins) takes floors of rooms, doors,
+  windows, open-plan sides and stairs, in meters or feet, and builds the walls (shared walls once), cuts the openings,
+  names each room and stacks the floors, as one undo step. `room_info` answers "how big is the master?" with the
+  room's area in square feet and square meters.
 - **Big drawing sets use far less memory and redraw faster.** The 52-page A1 permit set (about 200,000 faces) missed two
   of its budgets the first time it was measured: it peaked at 1.94 GB of memory (budget 1.5 GB) and its slowest drawing
   took 1.06 s to redraw after a wall moved (budget 1 s). Drawings kept for the pages now hold their plain lines packed
@@ -360,6 +569,17 @@ What changed in each SketchCraft release, newest first. The format follows
   on a short window), each group of tools in rows, and the bar exactly as wide as its columns. The view bar
   and the quick-action strip move over to stay clear of it.
 
+### Security
+- **WildLeopard review of 0.3.8.**
+  - Sheets and tables: a table made by an agent or a plugin keeps to the same size limits as one
+    you draw, sheet data in a model file is checked when the file opens, and the number of
+    viewports on a sheet is limited.
+  - Rendering: picture and drawing sizes are checked before memory is set aside for them.
+  - Agents: text that comes from an opened file, such as names and labels, is marked as data in
+    an agent's replies, so a hostile file can't pass itself off as instructions.
+  - Batches of commands stop cleanly at their limits.
+  - Export: DXF and SVG files keep imported text as plain text.
+
 ## [0.3.7] - 2026-11-17
 
 ### Added
@@ -414,7 +634,7 @@ What changed in each SketchCraft release, newest first. The format follows
   never worked; it does now.
 
 ### Security
-- **Final pre-release pass.**
+- **WildLeopard review of 0.3.6.**
   - Plugins and agents: a plugin run that changes your model now says so
     ("Plugin X changed 3 things", with an Undo button), the Undo and Redo buttons
     say when the step is from a plugin, and when you open SketchCraft after an AI
@@ -438,14 +658,14 @@ What changed in each SketchCraft release, newest first. The format follows
     remembered Save path must end in `.sketchcraft`, the dev bridge deletes its token
     file when it stops, and the committed MCP setup holds no personal folder.
 
-- **Hardening after a red-team review.** Your model is safer: it's saved
+- **WildLeopard review of 0.3.6.** Your model is safer: it's saved
   atomically with rolling backups, a file that can't be read is kept aside
   instead of replaced, and a bad command can no longer corrupt it. Plugins
   (JavaScript and SketchUp Ruby) and AI agents are held to modeling commands, the
   plugin sandbox is tighter, installing a plugin shows what it is first, MCP
   agents work inside one folder, and the dev bridge needs a token. Updates and
   releases are checked more strictly, and releases publish SHA-256 checksums.
-- **A second review closed the gaps in that.** Undo no longer steps back over
+- **WildLeopard review of 0.3.6.** Undo no longer steps back over
   work another client (Claude, a second window) saved, and a burst of New/Open
   can't push your last good backup out (backups are thinned instead of dropped,
   blank ones are skipped). A plugin run is now one Undo step. Opening a huge or
@@ -454,7 +674,7 @@ What changed in each SketchCraft release, newest first. The format follows
   only the right kind of file with a new name (never over yours) and can't be
   steered out of their folder by an OBJ file. Plugin messages say which plugin
   they come from, and saved CSVs can't carry spreadsheet formulas.
-- **A third review.** Backups are safer: only SketchCraft's own backups are
+- **WildLeopard review of 0.3.6.** Backups are safer: only SketchCraft's own backups are
   counted, the newest of each time slot is kept, the copy taken just before a
   New, Open or big delete is kept for a day, and another model in the same folder
   can't thin yours. If another program saves while a plugin runs, or while your
@@ -468,7 +688,7 @@ What changed in each SketchCraft release, newest first. The format follows
   instead of freezing the app. The report CSV can't carry formulas, plugin tool
   previews can't crash the window, and a long Ruby script has a time limit.
 
-- **A fourth review.** Backups can no longer be pushed out: forced backups are paced,
+- **WildLeopard review of 0.3.6.** Backups can no longer be pushed out: forced backups are paced,
   your backups, an agent's and a plugin's each have their own small quota (with a byte
   limit too), a plugin run that wipes the model is backed up first, and the files set
   aside next to your model are only removed with a notice. Folder names such as
@@ -481,7 +701,7 @@ What changed in each SketchCraft release, newest first. The format follows
   own edits during a run are saved at once. The release workflow keeps the Apple
   secrets out of the job that compiles, and checks the file names it signs.
 
-- **A fifth review.** Undo after another program saved now works on ordinary models
+- **WildLeopard review of 0.3.6.** Undo after another program saved now works on ordinary models
   (it used to refuse most of the time once you had rotated, scaled or imported
   anything), carries your history across a save without a pause even on huge models,
   and keeps a step it had to refuse so it can be tried again (press Undo again to skip
@@ -496,7 +716,7 @@ What changed in each SketchCraft release, newest first. The format follows
   Plugins can no longer use Undo and Redo; the release workflow asks the `release`
   reviewer before the Apple signing secrets can be read.
 
-- **A sixth review.** One size limit now counts everything in a model (images, scans,
+- **WildLeopard review of 0.3.6.** One size limit now counts everything in a model (images, scans,
   names, notes, component attributes): about 512 MB of file, of which an AI agent or a
   plugin can take a model up to 160 MB, and no more than 32 MB at a time, so a runaway
   tool can no longer make your model unopenable. Models over the limits (made before
@@ -515,7 +735,7 @@ What changed in each SketchCraft release, newest first. The format follows
   map and terrain download (Add location…); it stays yours. Very large models (over a
   million points, edges and faces) say so: each change takes a second or more.
 
-- **A seventh review.** Models with parts inside parts (most SketchUp imports and
+- **WildLeopard review of 0.3.6.** Models with parts inside parts (most SketchUp imports and
   library parts) open, restore and reload again: the sixth review's consistency check
   wrongly refused them. A model with a very long text pool (hundreds of thousands of
   named placements) opens for cutting down instead of being refused, and an AI agent
@@ -527,7 +747,7 @@ What changed in each SketchCraft release, newest first. The format follows
   itself when the file can be read again or is moved, or when you choose New or Open.
   An agent's `open` and library reads have their own smaller size limits, and a
   large import now shows the big-model notice straight away.
-- **An eighth review.** A SketchUp file (or a saved model, or a library part) whose
+- **WildLeopard review of 0.3.6.** A SketchUp file (or a saved model, or a library part) whose
   components contain themselves, nest more than 64 levels deep or multiply into
   millions of faces (a part placed 10 times inside a part placed 10 times, and so on)
   used to crash the app, and could crash it again on every start. They are now refused
@@ -539,7 +759,7 @@ What changed in each SketchCraft release, newest first. The format follows
   seconds for any file), so a tiny booby-trapped file can't use up the computer's
   memory or freeze the app. A plugin tool that can't start now says so, and one that
   sends too many commands is stopped.
-- **A second look at the eighth review.** Double-click now works everywhere (it did
+- **WildLeopard review of 0.3.6.** Double-click now works everywhere (it did
   nothing in Windows and in browser builds): double-click finishes a wall, opens a
   group or component, selects a face with its edges (triple-click: everything
   connected), and repeats your last Push/Pull distance. Escape closes the Learn,
@@ -784,7 +1004,8 @@ The first build with installers (never published as a release).
   import and export, and PNG renders with dimensions and labels.
 - Installers for macOS, Windows and Linux, and the CLI for each.
 
-[Unreleased]: https://github.com/jasonsutter87/sketchcraft/compare/v0.3.9...HEAD
+[Unreleased]: https://github.com/jasonsutter87/sketchcraft/compare/v0.3.10...HEAD
+[0.3.10]: https://github.com/jasonsutter87/sketchcraft/compare/v0.3.9...v0.3.10
 [0.3.9]: https://github.com/jasonsutter87/sketchcraft/compare/v0.3.8...v0.3.9
 [0.3.8]: https://github.com/jasonsutter87/sketchcraft/compare/v0.3.7...v0.3.8
 [0.3.7]: https://github.com/jasonsutter87/sketchcraft/compare/v0.3.6...v0.3.7

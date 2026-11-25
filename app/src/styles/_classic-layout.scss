@@ -5,65 +5,67 @@
    edge to edge above the model, outside it (like SketchUp); the model gets the
    rest of the window ---------- */
 
-.app.dock-classic .stage {
-  @include flex-col;
-}
+.app.dock-classic {
+  .stage {
+    @include flex-col;
+  }
 
-.app.dock-classic .viewport {
-  position: relative;
-  inset: auto;
-  flex: 1;
-  min-height: 0;
-  order: 10;
-}
+  .viewport {
+    position: relative;
+    inset: auto;
+    flex: 1;
+    min-height: 0;
+    order: 10;
+  }
 
-.app.dock-classic .toolbar,
-.app.dock-classic .views,
-.app.dock-classic .ws-strip {
-  position: static;
-  transform: none;
-  max-width: none;
-  width: 100%;
-  box-sizing: border-box;
-  margin: 0;
-  border: 0;
-  border-bottom: 1px solid var(--line);
-  border-radius: 0;
-  box-shadow: none;
-  justify-content: flex-start;
-}
+  .toolbar,
+  .views,
+  .ws-strip {
+    position: static;
+    transform: none;
+    max-width: none;
+    width: 100%;
+    box-sizing: border-box;
+    margin: 0;
+    border: 0;
+    border-bottom: 1px solid var(--line);
+    border-radius: 0;
+    box-shadow: none;
+    justify-content: flex-start;
+  }
 
-.app.dock-classic .toolbar {
-  order: 1;
-  padding: 3px 6px;
-}
+  .toolbar {
+    order: 1;
+    padding: 3px 6px;
+  }
 
-.app.dock-classic .views {
-  order: 2;
-  padding: 2px 6px;
-  background: var(--bg);
-}
+  .views {
+    order: 2;
+    padding: 2px 6px;
+    background: var(--bg);
+  }
 
-.app.dock-classic .ws-strip {
-  order: 3;
-  padding: 3px 6px;
-}
-/* the Value box sits in the corner like a status bar */
+  .ws-strip {
+    order: 3;
+    padding: 3px 6px;
+  }
+  /* the Value box sits in the corner like a status bar */
 
-.app.dock-classic .measure {
-  right: 0;
-  bottom: 0;
-  border-radius: calc(var(--radius) * 0.8) 0 0 0;
-  border-right: 0;
-  border-bottom: 0;
-  box-shadow: none;
-}
+  .measure {
+    right: 0;
+    bottom: 0;
+    border-radius: calc(var(--radius) * 0.8) 0 0 0;
+    border-right: 0;
+    border-bottom: 0;
+    box-shadow: none;
+  }
 
-.app.dock-classic .coach {
-  top: 12px;
-}
+  .coach {
+    top: 12px;
+  }
 
-.app.dock-classic .more-tools {
-  bottom: auto;
-  top: calc(100% + 8px);
+  .more-tools {
+    bottom: auto;
+    top: calc(100% + 8px);
+  }
 }

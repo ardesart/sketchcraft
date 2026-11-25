@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { inTauri } from "./engine";
 
 export const LINKS = {
+  website: "https://trysketchcraft.com/",
   repo: "https://github.com/jasonsutter87/sketchcraft",
   license: "https://github.com/jasonsutter87/sketchcraft/blob/main/LICENSE",
   changelog: "https://github.com/jasonsutter87/sketchcraft/blob/main/CHANGELOG.md",

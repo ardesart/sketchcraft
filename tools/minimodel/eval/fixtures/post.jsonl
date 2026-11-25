@@ -1,0 +1,2 @@
+# @post is a group named "Column": a 0.3 m square column 3 m tall standing at the origin (centered on x 0, y 0).
+{"cmd":"column","at":[0,0,0],"size":0.3,"height":3,"as":"post"}

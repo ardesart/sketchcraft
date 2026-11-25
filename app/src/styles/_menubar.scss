@@ -145,6 +145,42 @@
   }
 }
 
+/* the eight menus folded into one (menubar.tsx, COMPACT_MENUS) */
+.menubar-wrap.compact .menubar-item > button {
+  @include inline-row(7px);
+}
+
+.menu-burger {
+  position: relative;
+  width: 14px;
+  height: 2px;
+  border-radius: 1px;
+  background: currentColor;
+  box-shadow: 0 -4px 0 currentColor, 0 4px 0 currentColor;
+}
+
+/* the 84px at the left of the top bar is room for the macOS window buttons, which a touch screen doesn't have */
+@media (pointer: coarse) {
+  .topbar {
+    padding-left: 12px;
+  }
+}
+
+/* a phone held upright: Themes and Render keep their icons and lose their names */
+@media (max-width: 639px) {
+  .top-actions .btn-label {
+    display: none;
+  }
+
+  .top-actions .btn {
+    padding: 0 9px;
+  }
+
+  .topbar .doc {
+    display: none;
+  }
+}
+
 /* About */
 
 .about {

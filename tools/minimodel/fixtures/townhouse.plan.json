@@ -1,0 +1,541 @@
+{
+ "name": "Two-story townhouse",
+ "wall_thickness": 0.15,
+ "floors": [
+  {
+   "level": 1,
+   "wall_height": 2.6,
+   "rooms": [
+    {
+     "name": "Primary Bedroom",
+     "rect": [
+      0,
+      10.668,
+      3.962,
+      3.962
+     ]
+    },
+    {
+     "name": "Bath 1",
+     "rect": [
+      3.962,
+      12.192,
+      2.743,
+      2.438
+     ]
+    },
+    {
+     "name": "WIC",
+     "rect": [
+      3.962,
+      10.668,
+      2.743,
+      1.524
+     ]
+    },
+    {
+     "name": "Kitchen",
+     "rect": [
+      0,
+      6.096,
+      3.048,
+      4.572
+     ]
+    },
+    {
+     "name": "Living / Dining",
+     "rect": [
+      3.048,
+      6.096,
+      3.658,
+      4.572
+     ]
+    },
+    {
+     "name": "Pantry",
+     "rect": [
+      3.353,
+      4.877,
+      1.219,
+      1.219
+     ]
+    },
+    {
+     "name": "Laundry",
+     "rect": [
+      3.353,
+      2.438,
+      1.219,
+      2.438
+     ]
+    },
+    {
+     "name": "Garage",
+     "rect": [
+      0,
+      0,
+      3.353,
+      6.096
+     ]
+    },
+    {
+     "name": "Hall",
+     "rect": [
+      4.572,
+      2.438,
+      1.067,
+      3.658
+     ]
+    },
+    {
+     "name": "Stair",
+     "rect": [
+      5.639,
+      2.438,
+      1.067,
+      3.658
+     ]
+    },
+    {
+     "name": "Foyer",
+     "rect": [
+      3.353,
+      0,
+      3.353,
+      2.438
+     ]
+    }
+   ],
+   "openings": [
+    {
+     "kind": "door",
+     "between": [
+      "Primary Bedroom",
+      "Kitchen"
+     ],
+     "at": [
+      2.896,
+      10.668
+     ],
+     "width": 0.853
+    },
+    {
+     "kind": "open",
+     "between": [
+      "Kitchen",
+      "Living / Dining"
+     ]
+    },
+    {
+     "kind": "door",
+     "between": [
+      "Primary Bedroom",
+      "Bath 1"
+     ],
+     "at": [
+      3.962,
+      13.335
+     ],
+     "width": 0.762
+    },
+    {
+     "kind": "door",
+     "between": [
+      "Primary Bedroom",
+      "WIC"
+     ],
+     "at": [
+      3.962,
+      11.506
+     ],
+     "width": 0.762
+    },
+    {
+     "kind": "door",
+     "between": [
+      "Pantry",
+      "Living / Dining"
+     ],
+     "at": [
+      3.886,
+      6.096
+     ],
+     "width": 0.762
+    },
+    {
+     "kind": "open",
+     "between": [
+      "Hall",
+      "Living / Dining"
+     ]
+    },
+    {
+     "kind": "open",
+     "between": [
+      "Hall",
+      "Foyer"
+     ]
+    },
+    {
+     "kind": "open",
+     "between": [
+      "Stair",
+      "Foyer"
+     ]
+    },
+    {
+     "kind": "door",
+     "between": [
+      "Laundry",
+      "Hall"
+     ],
+     "at": [
+      4.572,
+      3.81
+     ],
+     "width": 1.219
+    },
+    {
+     "kind": "door",
+     "between": [
+      "Garage",
+      "Foyer"
+     ],
+     "at": [
+      3.353,
+      1.676
+     ],
+     "width": 0.914
+    },
+    {
+     "kind": "door",
+     "between": [
+      "Foyer",
+      "outside"
+     ],
+     "at": [
+      4.572,
+      0
+     ],
+     "width": 0.914
+    },
+    {
+     "kind": "door",
+     "between": [
+      "Garage",
+      "outside"
+     ],
+     "at": [
+      1.676,
+      0
+     ],
+     "width": 2.438,
+     "height": 2.134
+    },
+    {
+     "kind": "window",
+     "between": [
+      "Primary Bedroom",
+      "outside"
+     ],
+     "at": [
+      1.981,
+      14.63
+     ],
+     "width": 2.134
+    },
+    {
+     "kind": "window",
+     "between": [
+      "Bath 1",
+      "outside"
+     ],
+     "at": [
+      4.801,
+      14.63
+     ],
+     "width": 0.762,
+     "sill": 1.2,
+     "height": 0.9
+    },
+    {
+     "kind": "window",
+     "between": [
+      "Living / Dining",
+      "outside"
+     ],
+     "at": [
+      6.706,
+      9.449
+     ],
+     "width": 1.219
+    },
+    {
+     "kind": "window",
+     "between": [
+      "Living / Dining",
+      "outside"
+     ],
+     "at": [
+      6.706,
+      7.315
+     ],
+     "width": 1.219
+    },
+    {
+     "kind": "window",
+     "between": [
+      "Foyer",
+      "outside"
+     ],
+     "at": [
+      6.706,
+      1.372
+     ],
+     "width": 0.914
+    },
+    {
+     "kind": "window",
+     "between": [
+      "Foyer",
+      "outside"
+     ],
+     "at": [
+      6.02,
+      0
+     ],
+     "width": 0.762
+    }
+   ],
+   "stairs": [
+    {
+     "room": "Stair"
+    }
+   ]
+  },
+  {
+   "level": 2,
+   "wall_height": 2.45,
+   "rooms": [
+    {
+     "name": "Bed 2",
+     "rect": [
+      0,
+      7.01,
+      3.658,
+      3.658
+     ]
+    },
+    {
+     "name": "Bed 3",
+     "rect": [
+      3.658,
+      7.01,
+      3.048,
+      3.658
+     ]
+    },
+    {
+     "name": "Bath 2",
+     "rect": [
+      0,
+      4.572,
+      2.438,
+      2.438
+     ]
+    },
+    {
+     "name": "Hall",
+     "polygon": [
+      [
+       2.438,
+       7.01
+      ],
+      [
+       2.438,
+       4.572
+      ],
+      [
+       5.639,
+       4.572
+      ],
+      [
+       5.639,
+       6.096
+      ],
+      [
+       6.706,
+       6.096
+      ],
+      [
+       6.706,
+       7.01
+      ]
+     ]
+    },
+    {
+     "name": "Stair",
+     "rect": [
+      5.639,
+      2.438,
+      1.067,
+      3.658
+     ]
+    },
+    {
+     "name": "Loft",
+     "polygon": [
+      [
+       0,
+       4.572
+      ],
+      [
+       0,
+       0
+      ],
+      [
+       6.706,
+       0
+      ],
+      [
+       6.706,
+       2.438
+      ],
+      [
+       5.639,
+       2.438
+      ],
+      [
+       5.639,
+       4.572
+      ]
+     ]
+    }
+   ],
+   "openings": [
+    {
+     "kind": "door",
+     "between": [
+      "Bed 2",
+      "Hall"
+     ],
+     "at": [
+      3.048,
+      7.01
+     ],
+     "width": 0.853
+    },
+    {
+     "kind": "door",
+     "between": [
+      "Bed 3",
+      "Hall"
+     ],
+     "at": [
+      4.237,
+      7.01
+     ],
+     "width": 0.853
+    },
+    {
+     "kind": "door",
+     "between": [
+      "Bath 2",
+      "Hall"
+     ],
+     "at": [
+      2.438,
+      6.02
+     ],
+     "width": 0.762
+    },
+    {
+     "kind": "open",
+     "between": [
+      "Hall",
+      "Loft"
+     ]
+    },
+    {
+     "kind": "open",
+     "between": [
+      "Hall",
+      "Stair"
+     ]
+    },
+    {
+     "kind": "window",
+     "between": [
+      "Bed 2",
+      "outside"
+     ],
+     "at": [
+      1.829,
+      10.668
+     ],
+     "width": 1.524
+    },
+    {
+     "kind": "window",
+     "between": [
+      "Bed 3",
+      "outside"
+     ],
+     "at": [
+      4.953,
+      10.668
+     ],
+     "width": 1.067
+    },
+    {
+     "kind": "window",
+     "between": [
+      "Bed 3",
+      "outside"
+     ],
+     "at": [
+      6.706,
+      9.144
+     ],
+     "width": 1.219
+    },
+    {
+     "kind": "window",
+     "between": [
+      "Loft",
+      "outside"
+     ],
+     "at": [
+      6.706,
+      1.143
+     ],
+     "width": 1.067
+    },
+    {
+     "kind": "window",
+     "between": [
+      "Loft",
+      "outside"
+     ],
+     "at": [
+      1.829,
+      0
+     ],
+     "width": 1.829
+    },
+    {
+     "kind": "window",
+     "between": [
+      "Loft",
+      "outside"
+     ],
+     "at": [
+      4.572,
+      0
+     ],
+     "width": 1.829
+    }
+   ]
+  }
+ ]
+}

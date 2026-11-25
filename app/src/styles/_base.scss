@@ -10,6 +10,7 @@ body,
 #root {
   margin: 0;
   height: 100%;
+  box-sizing: border-box;
   overflow: hidden;
   user-select: none;
 }
@@ -32,4 +33,10 @@ input {
   grid-template-columns: 248px 1fr 272px;
   grid-template-rows: 52px 1fr;
   height: 100%;
+}
+
+// Phones draw edge to edge: keep the app clear of the status bar, camera cutout and navigation buttons.
+// (All zero on a computer.)
+#root {
+  padding: env(safe-area-inset-top, 0) env(safe-area-inset-right, 0) env(safe-area-inset-bottom, 0) env(safe-area-inset-left, 0);
 }
